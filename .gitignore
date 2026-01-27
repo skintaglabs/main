@@ -21,8 +21,13 @@ env/
 
 # Data
 data/
+data/images/
 *.csv
 *.parquet
+
+# Keep data directory structure
+!data/.gitkeep
+!data/images/.gitkeep
 
 # Model artifacts
 *.pt
