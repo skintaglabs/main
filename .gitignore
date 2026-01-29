@@ -19,24 +19,45 @@ env/
 .vscode/
 *.swp
 
-# Data
+# Data — all datasets are large and downloaded locally
 data/
-data/images/
 *.csv
 *.parquet
 
 # Keep data directory structure
 !data/.gitkeep
-!data/images/.gitkeep
+
+# Dataset downloads / archives
+*.zip
+*.tar.gz
+*.tar
+*.gz
 
 # Model artifacts
 *.pt
 *.pth
 *.ckpt
+*.pkl
+*.joblib
+*.h5
+*.onnx
 
 # Results (keep structure, ignore outputs)
 results/*
 !results/.gitkeep
+
+# Kaggle credentials
+.kaggle/
+kaggle.json
+
+# Environment / secrets
+.env
+.env.*
+*.secret
+
+# Large media files
+*.bmp
+*.tiff
 
 # OS
 .DS_Store

@@ -13,7 +13,7 @@ class SklearnClassifier:
 
     def __init__(self, classifier_type: str = "logistic"):
         if classifier_type == "logistic":
-            clf = LogisticRegression(max_iter=1000, n_jobs=-1)
+            clf = LogisticRegression(max_iter=1000)
         elif classifier_type == "mlp":
             clf = MLPClassifier(hidden_layer_sizes=(256,), max_iter=500, early_stopping=True)
         else:
@@ -24,10 +24,19 @@ class SklearnClassifier:
             ("classifier", clf),
         ])
 
-    def fit(self, embeddings, labels):
-        """Train on pre-extracted embeddings."""
+    def fit(self, embeddings, labels, sample_weight=None):
+        """Train on pre-extracted embeddings.
+
+        Args:
+            embeddings: (N, D) array or tensor
+            labels: (N,) array
+            sample_weight: optional (N,) per-sample weights for domain balancing
+        """
         X = embeddings.numpy() if isinstance(embeddings, torch.Tensor) else embeddings
-        self.pipeline.fit(X, labels)
+        fit_params = {}
+        if sample_weight is not None:
+            fit_params["classifier__sample_weight"] = np.asarray(sample_weight)
+        self.pipeline.fit(X, labels, **fit_params)
         return self
 
     def predict(self, embeddings):
@@ -39,6 +48,21 @@ class SklearnClassifier:
         """Predict class probabilities."""
         X = embeddings.numpy() if isinstance(embeddings, torch.Tensor) else embeddings
         return self.pipeline.predict_proba(X)
+
+    def predict_triage(self, embeddings, triage_system):
+        """Predict with triage assessment.
+
+        Args:
+            embeddings: (N, D) array or tensor
+            triage_system: TriageSystem instance
+
+        Returns:
+            List of TriageResult objects
+        """
+        proba = self.predict_proba(embeddings)
+        # Malignant probability is column 1
+        mal_proba = proba[:, 1] if proba.ndim == 2 else proba
+        return [triage_system.assess(p) for p in mal_proba]
 
     def score(self, embeddings, labels):
         """Compute accuracy."""

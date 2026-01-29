@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkinTag — AI Skin Lesion Screening</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface-hover: #242836;
+            --border: #2d3142;
+            --text: #e4e4e7;
+            --text-muted: #8b8fa3;
+            --accent: #6366f1;
+            --accent-light: #818cf8;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --green-bg: rgba(34,197,94,0.1);
+            --yellow-bg: rgba(234,179,8,0.1);
+            --red-bg: rgba(239,68,68,0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            margin-bottom: 0.25rem;
+        }
+
+        header h1 span {
+            color: var(--accent-light);
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Disclaimer banner */
+        .disclaimer-banner {
+            background: var(--red-bg);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 2rem;
+            font-size: 0.85rem;
+            color: #fca5a5;
+        }
+
+        .disclaimer-banner strong {
+            color: var(--red);
+        }
+
+        /* Upload area */
+        .upload-area {
+            background: var(--surface);
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: var(--accent);
+            background: var(--surface-hover);
+        }
+
+        .upload-area svg {
+            width: 48px;
+            height: 48px;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .upload-area h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-area p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .upload-area input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /* Preview */
+        .preview-section {
+            display: none;
+            margin-top: 1.5rem;
+        }
+
+        .preview-section.visible { display: block; }
+
+        .preview-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .preview-image-container {
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-height: 400px;
+            overflow: hidden;
+        }
+
+        .preview-image-container img {
+            max-width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+        }
+
+        .preview-actions {
+            padding: 1rem 1.5rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 0.6rem 1.5rem;
+            border-radius: 10px;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover { background: var(--accent-light); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: var(--surface-hover);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover { background: var(--border); }
+
+        .filename {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15,17,23,0.85);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .loading-overlay.visible { display: flex; }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-overlay p { color: var(--text-muted); }
+
+        /* Results */
+        .results-section {
+            display: none;
+            margin-top: 1.5rem;
+        }
+
+        .results-section.visible { display: block; }
+
+        /* Risk gauge */
+        .risk-gauge {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .gauge-container {
+            position: relative;
+            width: 200px;
+            height: 110px;
+            margin: 0 auto 1rem;
+        }
+
+        .gauge-bg {
+            width: 200px;
+            height: 100px;
+            border-radius: 100px 100px 0 0;
+            background: conic-gradient(
+                from 0.75turn at 50% 100%,
+                var(--green) 0deg,
+                var(--yellow) 90deg,
+                var(--red) 180deg
+            );
+            position: relative;
+            overflow: hidden;
+        }
+
+        .gauge-bg::after {
+            content: '';
+            position: absolute;
+            width: 140px;
+            height: 70px;
+            background: var(--surface);
+            border-radius: 140px 140px 0 0;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .gauge-needle {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 3px;
+            height: 80px;
+            background: white;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(-90deg);
+            transition: transform 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 2;
+            border-radius: 2px;
+        }
+
+        .gauge-center {
+            position: absolute;
+            bottom: -5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            z-index: 3;
+        }
+
+        .risk-score-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .risk-score-label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Urgency tier card */
+        .tier-card {
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid;
+        }
+
+        .tier-card.low {
+            background: var(--green-bg);
+            border-color: rgba(34,197,94,0.3);
+        }
+
+        .tier-card.moderate {
+            background: var(--yellow-bg);
+            border-color: rgba(234,179,8,0.3);
+        }
+
+        .tier-card.high {
+            background: var(--red-bg);
+            border-color: rgba(239,68,68,0.3);
+        }
+
+        .tier-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .tier-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .tier-card.low .tier-dot { background: var(--green); }
+        .tier-card.moderate .tier-dot { background: var(--yellow); }
+        .tier-card.high .tier-dot { background: var(--red); }
+
+        .tier-label {
+            font-weight: 700;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tier-card.low .tier-label { color: var(--green); }
+        .tier-card.moderate .tier-label { color: var(--yellow); }
+        .tier-card.high .tier-label { color: var(--red); }
+
+        .confidence-badge {
+            margin-left: auto;
+            font-size: 0.75rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+            color: var(--text-muted);
+        }
+
+        .tier-recommendation {
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+
+        /* Probability bars */
+        .prob-bars {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .prob-bars h4 {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        .prob-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .prob-bar-label {
+            width: 80px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .prob-bar-track {
+            flex: 1;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .prob-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 1s ease;
+        }
+
+        .prob-bar-fill.benign { background: var(--green); }
+        .prob-bar-fill.malignant { background: var(--red); }
+
+        .prob-bar-value {
+            width: 50px;
+            text-align: right;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        /* ABCDE section */
+        .abcde-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .abcde-section h4 {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        .abcde-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .abcde-item {
+            background: var(--surface-hover);
+            border-radius: 10px;
+            padding: 0.75rem;
+            text-align: center;
+        }
+
+        .abcde-letter {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-light);
+        }
+
+        .abcde-word {
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .abcde-desc {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Result disclaimer */
+        .result-disclaimer {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.25rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        .result-disclaimer strong {
+            color: var(--red);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container { padding: 1rem; }
+            header h1 { font-size: 1.5rem; }
+            .upload-area { padding: 2rem 1rem; }
+            .gauge-container { width: 160px; height: 90px; }
+            .gauge-bg { width: 160px; height: 80px; }
+            .gauge-needle { height: 65px; }
+            .risk-score-value { font-size: 2rem; }
+            .abcde-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Skin<span>Tag</span></h1>
+            <p>AI-powered skin lesion screening for low-resource settings</p>
+        </header>
+
+        <div class="disclaimer-banner">
+            <strong>Medical Disclaimer:</strong> This tool is an AI screening aid, not a medical diagnosis.
+            It cannot replace professional evaluation. Always consult a dermatologist for clinical decisions.
+        </div>
+
+        <!-- Upload -->
+        <div class="upload-area" id="uploadArea">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            <h3>Upload a skin lesion photo</h3>
+            <p>Drag and drop or click to select — JPG, PNG supported</p>
+            <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp">
+        </div>
+
+        <!-- Preview -->
+        <div class="preview-section" id="previewSection">
+            <div class="preview-card">
+                <div class="preview-image-container">
+                    <img id="previewImage" src="" alt="Uploaded image preview">
+                </div>
+                <div class="preview-actions">
+                    <span class="filename" id="fileName"></span>
+                    <button class="btn btn-secondary" id="clearBtn">Clear</button>
+                    <button class="btn btn-primary" id="analyzeBtn">Analyze</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="spinner"></div>
+            <p>Analyzing image with SigLIP vision model...</p>
+        </div>
+
+        <!-- Results -->
+        <div class="results-section" id="resultsSection">
+            <!-- Risk gauge -->
+            <div class="risk-gauge">
+                <div class="gauge-container">
+                    <div class="gauge-bg"></div>
+                    <div class="gauge-needle" id="gaugeNeedle"></div>
+                    <div class="gauge-center"></div>
+                </div>
+                <div class="risk-score-value" id="riskScoreValue">—</div>
+                <div class="risk-score-label">Risk Score</div>
+            </div>
+
+            <!-- Tier card -->
+            <div class="tier-card" id="tierCard">
+                <div class="tier-header">
+                    <div class="tier-dot"></div>
+                    <span class="tier-label" id="tierLabel"></span>
+                    <span class="confidence-badge" id="confidenceBadge"></span>
+                </div>
+                <div class="tier-recommendation" id="tierRecommendation"></div>
+            </div>
+
+            <!-- Probability bars -->
+            <div class="prob-bars">
+                <h4>Classification Probabilities</h4>
+                <div class="prob-bar-row">
+                    <span class="prob-bar-label">Benign</span>
+                    <div class="prob-bar-track">
+                        <div class="prob-bar-fill benign" id="benignBar" style="width: 0%"></div>
+                    </div>
+                    <span class="prob-bar-value" id="benignValue">—</span>
+                </div>
+                <div class="prob-bar-row">
+                    <span class="prob-bar-label">Malignant</span>
+                    <div class="prob-bar-track">
+                        <div class="prob-bar-fill malignant" id="malignantBar" style="width: 0%"></div>
+                    </div>
+                    <span class="prob-bar-value" id="malignantValue">—</span>
+                </div>
+            </div>
+
+            <!-- ABCDE -->
+            <div class="abcde-section">
+                <h4>What to Look For — ABCDE Criteria</h4>
+                <div class="abcde-grid">
+                    <div class="abcde-item">
+                        <div class="abcde-letter">A</div>
+                        <div class="abcde-word">Asymmetry</div>
+                        <div class="abcde-desc">One half doesn't match the other</div>
+                    </div>
+                    <div class="abcde-item">
+                        <div class="abcde-letter">B</div>
+                        <div class="abcde-word">Border</div>
+                        <div class="abcde-desc">Edges are irregular, ragged, or blurred</div>
+                    </div>
+                    <div class="abcde-item">
+                        <div class="abcde-letter">C</div>
+                        <div class="abcde-word">Color</div>
+                        <div class="abcde-desc">Uneven shades of brown, black, tan</div>
+                    </div>
+                    <div class="abcde-item">
+                        <div class="abcde-letter">D</div>
+                        <div class="abcde-word">Diameter</div>
+                        <div class="abcde-desc">Larger than 6mm (pencil eraser)</div>
+                    </div>
+                    <div class="abcde-item">
+                        <div class="abcde-letter">E</div>
+                        <div class="abcde-word">Evolution</div>
+                        <div class="abcde-desc">Changes in size, shape, or color</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Result disclaimer -->
+            <div class="result-disclaimer" id="resultDisclaimer"></div>
+        </div>
+
+        <footer>
+            <p>SkinTag — Research prototype for low-resource dermatological screening</p>
+            <p>Powered by SigLIP vision embeddings. Not for clinical use.</p>
+        </footer>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const previewSection = document.getElementById('previewSection');
+        const previewImage = document.getElementById('previewImage');
+        const fileName = document.getElementById('fileName');
+        const clearBtn = document.getElementById('clearBtn');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const resultsSection = document.getElementById('resultsSection');
+
+        let selectedFile = null;
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleFile(files[0]);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please upload an image file (JPG, PNG)');
+                return;
+            }
+            selectedFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImage.src = e.target.result;
+                fileName.textContent = file.name;
+                previewSection.classList.add('visible');
+                resultsSection.classList.remove('visible');
+                uploadArea.style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        clearBtn.addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            previewSection.classList.remove('visible');
+            resultsSection.classList.remove('visible');
+            uploadArea.style.display = '';
+        });
+
+        analyzeBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            analyzeBtn.disabled = true;
+            loadingOverlay.classList.add('visible');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Analysis failed');
+                }
+
+                const data = await response.json();
+                displayResults(data);
+            } catch (error) {
+                alert('Analysis failed: ' + error.message);
+            } finally {
+                analyzeBtn.disabled = false;
+                loadingOverlay.classList.remove('visible');
+            }
+        });
+
+        function displayResults(data) {
+            resultsSection.classList.add('visible');
+
+            // Risk score
+            const score = data.risk_score;
+            document.getElementById('riskScoreValue').textContent = (score * 100).toFixed(1) + '%';
+
+            // Gauge needle: -90deg (left, 0%) to +90deg (right, 100%)
+            const needleAngle = -90 + (score * 180);
+            document.getElementById('gaugeNeedle').style.transform =
+                `translateX(-50%) rotate(${needleAngle}deg)`;
+
+            // Tier card
+            const tierCard = document.getElementById('tierCard');
+            tierCard.className = 'tier-card ' + data.urgency_tier;
+            document.getElementById('tierLabel').textContent =
+                data.urgency_tier.charAt(0).toUpperCase() + data.urgency_tier.slice(1) + ' Concern';
+            document.getElementById('confidenceBadge').textContent =
+                'Confidence: ' + data.confidence;
+            document.getElementById('tierRecommendation').textContent = data.recommendation;
+
+            // Probability bars
+            const benignPct = (data.probabilities.benign * 100).toFixed(1);
+            const malPct = (data.probabilities.malignant * 100).toFixed(1);
+            document.getElementById('benignBar').style.width = benignPct + '%';
+            document.getElementById('benignValue').textContent = benignPct + '%';
+            document.getElementById('malignantBar').style.width = malPct + '%';
+            document.getElementById('malignantValue').textContent = malPct + '%';
+
+            // Disclaimer
+            document.getElementById('resultDisclaimer').innerHTML =
+                '<strong>Important:</strong> ' + data.disclaimer;
+
+            // Scroll to results
+            resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    </script>
+</body>
+</html>

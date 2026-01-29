@@ -1,8 +1,11 @@
-"""Dataset loading utilities for HAM10000 skin cancer dataset."""
+"""Dataset loading utilities for skin lesion datasets."""
 
 from pathlib import Path
+import numpy as np
 import pandas as pd
 from PIL import Image
+
+from src.data.schema import SkinSample, samples_to_arrays
 
 
 # HAM10000 class mapping
@@ -99,8 +102,53 @@ def load_ham10000(data_dir: Path, binary: bool = True):
     return images, labels, metadata
 
 
+def load_multi_dataset(
+    data_dir: Path,
+    datasets: list[str] = None,
+    dataset_options: dict = None,
+) -> list[SkinSample]:
+    """Load and merge multiple datasets into unified SkinSample list.
+
+    Args:
+        data_dir: Root data directory
+        datasets: List of dataset names to load (default: all available)
+        dataset_options: Per-dataset options dict, e.g. {"fitzpatrick17k": {"exclude_uncertain": True}}
+
+    Returns:
+        List of SkinSample from all requested datasets
+    """
+    from src.data.datasets import DATASET_LOADERS
+
+    if datasets is None:
+        datasets = list(DATASET_LOADERS.keys())
+    if dataset_options is None:
+        dataset_options = {}
+
+    all_samples = []
+    for name in datasets:
+        if name not in DATASET_LOADERS:
+            print(f"Warning: Unknown dataset '{name}', skipping")
+            continue
+
+        loader = DATASET_LOADERS[name]
+        opts = dataset_options.get(name, {})
+
+        try:
+            samples = loader(Path(data_dir), **opts)
+            print(f"Loaded {len(samples)} samples from {name}")
+            all_samples.extend(samples)
+        except FileNotFoundError as e:
+            print(f"Warning: Could not load {name}: {e}")
+            continue
+
+    print(f"Total: {len(all_samples)} samples from {len(datasets)} datasets")
+    return all_samples
+
+
 def get_demographic_groups(metadata: pd.DataFrame):
     """Extract demographic groups for fairness analysis.
+
+    Supports both legacy HAM10000 metadata and unified multi-dataset metadata.
 
     Returns:
         Dictionary with group assignments for each sample
@@ -108,16 +156,32 @@ def get_demographic_groups(metadata: pd.DataFrame):
     groups = {}
 
     # Age groups
-    age_bins = [0, 30, 50, 70, 100]
-    age_labels = ["<30", "30-50", "50-70", "70+"]
-    groups["age"] = pd.cut(
-        metadata["age"].fillna(50), bins=age_bins, labels=age_labels
-    ).astype(str).values
+    if "age" in metadata.columns:
+        age_bins = [0, 30, 50, 70, 100]
+        age_labels = ["<30", "30-50", "50-70", "70+"]
+        groups["age"] = pd.cut(
+            metadata["age"].fillna(50), bins=age_bins, labels=age_labels
+        ).astype(str).values
 
     # Sex
-    groups["sex"] = metadata["sex"].fillna("unknown").values
+    if "sex" in metadata.columns:
+        groups["sex"] = metadata["sex"].fillna("unknown").values
 
     # Body location
-    groups["location"] = metadata["localization"].fillna("unknown").values
+    loc_col = "localization" if "localization" in metadata.columns else "location"
+    if loc_col in metadata.columns:
+        groups["location"] = metadata[loc_col].fillna("unknown").values
+
+    # Fitzpatrick skin type (new: multi-dataset)
+    if "fitzpatrick" in metadata.columns:
+        groups["fitzpatrick"] = metadata["fitzpatrick"].fillna("unknown").astype(str).values
+
+    # Domain (new: multi-dataset)
+    if "domain" in metadata.columns:
+        groups["domain"] = metadata["domain"].fillna("unknown").values
+
+    # Dataset source (new: multi-dataset)
+    if "dataset" in metadata.columns:
+        groups["dataset"] = metadata["dataset"].fillna("unknown").values
 
     return groups
