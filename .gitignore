@@ -69,6 +69,12 @@ kaggle.json
 *.bmp
 *.tiff
 
+# Deploy docs (contain local instructions, not for repo)
+DEPLOY_HF.md
+
+# HuggingFace Space (deployed separately, contains pickle files)
+huggingface_space/
+
 # OS
 .DS_Store
 Thumbs.db
