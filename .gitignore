@@ -19,24 +19,61 @@ env/
 .vscode/
 *.swp
 
-# Data
+# Data — all datasets are large and downloaded locally
 data/
-data/images/
 *.csv
 *.parquet
 
 # Keep data directory structure
 !data/.gitkeep
-!data/images/.gitkeep
+
+# Dataset downloads / archives
+*.zip
+*.tar.gz
+*.tar
+*.gz
 
 # Model artifacts
 *.pt
 *.pth
 *.ckpt
+*.pkl
+*.joblib
+*.h5
+*.onnx
+*.safetensors
+*.bin
+
+# HuggingFace / SigLIP model cache (very large)
+.cache/
+huggingface/
+*.cache
 
 # Results (keep structure, ignore outputs)
 results/*
 !results/.gitkeep
+
+# Kaggle credentials
+.kaggle/
+kaggle.json
+
+# Environment / secrets
+.env
+.env.*
+*.secret
+
+# Claude Code settings
+.claude/
+
+# Large media files
+*.bmp
+*.tiff
+
+# Deploy docs (contain local instructions, not for repo)
+DEPLOY_HF.md
+
+# HuggingFace Space (deployed separately, contains pickle files)
+huggingface_space/
 
 # OS
 .DS_Store

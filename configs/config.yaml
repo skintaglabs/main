@@ -3,14 +3,15 @@ model:
   embedding_dim: 1152
   image_size: 448
 
-# Low-resource settings
+# Extraction settings
 extraction:
   batch_size_cpu: 4
-  batch_size_gpu: 16
+  batch_size_gpu: 32   # RTX 4070 Ti SUPER (16GB VRAM) can handle 32+ with fp16
   cache_embeddings: true
 
 training:
-  classifier: "logistic"  # logistic or mlp
+  classifier: "logistic"  # logistic, mlp, deep
+  condition_classifier: true  # also train condition estimation (10-class)
   seed: 42
 
 data:
@@ -19,7 +20,35 @@ data:
   val_split: 0.1
   test_split: 0.1
 
+  # Multi-dataset configuration
+  # Enable/disable datasets for training. All data lives in data/<dataset_name>/
+  datasets:
+    - ham10000
+    - ddi
+    - fitzpatrick17k
+    - pad_ufes
+    - bcn20000
+
+  dataset_options:
+    fitzpatrick17k:
+      exclude_non_neoplastic: false  # include non-neoplastic as benign (not cancer = benign for triage)
+
 augmentation:
   lighting_variation: true
   noise_injection: true
   compression_artifacts: true
+  domain_bridging: true  # dermoscope artifact add/remove
+
+# Triage system configuration
+triage:
+  thresholds:
+    low_max: 0.3       # < 0.3 = low concern
+    moderate_max: 0.6   # 0.3-0.6 = moderate, > 0.6 = high concern
+
+  disclaimer: >-
+    IMPORTANT MEDICAL DISCLAIMER: This tool is an AI-powered screening aid and is
+    NOT a medical diagnosis. It cannot replace examination by a qualified healthcare
+    professional. False positives and false negatives are possible. If you have any
+    concerns about a skin lesion, please consult a board-certified dermatologist
+    regardless of this tool's output. In case of rapid changes, bleeding, or pain,
+    seek immediate medical attention.

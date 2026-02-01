@@ -1,0 +1,12 @@
+# Data and results are mounted as volumes, not baked into image
+data/
+results/
+notebooks/
+.git/
+.github/
+.claude/
+__pycache__/
+*.pyc
+*.egg-info/
+nul
+*.ipynb_checkpoints/
