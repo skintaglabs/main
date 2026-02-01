@@ -59,6 +59,8 @@ class EndToEndSigLIP(nn.Module):
 
     def forward(self, pixel_values):
         features = self.backbone.get_image_features(pixel_values=pixel_values)
+        if not isinstance(features, torch.Tensor):
+            features = features.pooler_output
         return self.head(features)
 
 
@@ -300,8 +302,8 @@ class EndToEndClassifier:
         self.training_history = []
 
     def _build_model(self):
-        from transformers import AutoProcessor
-        self.processor = AutoProcessor.from_pretrained(self.model_name)
+        from transformers import AutoImageProcessor
+        self.processor = AutoImageProcessor.from_pretrained(self.model_name)
         self.model = EndToEndSigLIP(
             self.model_name, self.hidden_dim, self.n_classes,
             self.dropout, self.unfreeze_layers

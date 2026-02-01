@@ -288,6 +288,7 @@ def stage_train_models(embeddings, labels, metadata):
     model_specs = [
         ("baseline", lambda: MajorityClassBaseline()),
         ("logistic", lambda: SklearnClassifier(classifier_type="logistic")),
+        ("xgboost", lambda: SklearnClassifier(classifier_type="xgboost")),
         ("deep", lambda: DeepClassifier(embedding_dim=emb_np.shape[1], device=device)),
     ]
 
@@ -430,6 +431,134 @@ def stage_train_models(embeddings, labels, metadata):
 
 
 # ---------------------------------------------------------------------------
+# Stage 4b: End-to-end SigLIP fine-tuning (optional)
+# ---------------------------------------------------------------------------
+
+def stage_finetune(image_paths, labels, metadata, epochs=10, unfreeze_layers=4):
+    """Fine-tune SigLIP backbone (last N layers) + classification head jointly.
+
+    This is the highest-ceiling approach but requires GPU and raw images.
+    The frozen-embedding models (logistic, XGBoost, deep MLP) train on cached
+    embeddings in seconds; fine-tuning reprocesses raw images each epoch.
+    """
+    import yaml
+    import pickle
+    import json
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import f1_score
+    from PIL import Image
+
+    from src.model.deep_classifier import EndToEndClassifier
+    from src.data.sampler import compute_stratified_split_key
+
+    config_path = PROJECT_ROOT / "configs" / "config.yaml"
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    cache_dir = PROJECT_ROOT / "results" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    seed = config["training"]["seed"]
+    device = "cuda" if __import__("torch").cuda.is_available() else "cpu"
+
+    if device != "cuda":
+        print("  WARNING: Fine-tuning without GPU will be very slow.")
+        print("  Consider using --no-finetune or running on a GPU machine.")
+
+    # Stratified split on (label, domain)
+    if "domain" in metadata.columns:
+        stratify_key = compute_stratified_split_key(labels, metadata["domain"].values)
+        unique, counts = np.unique(stratify_key, return_counts=True)
+        if counts.min() < 2:
+            stratify_key = labels
+    else:
+        stratify_key = labels
+
+    train_idx, test_idx = train_test_split(
+        np.arange(len(labels)),
+        test_size=0.2, random_state=seed, stratify=stratify_key,
+    )
+
+    # Prepare PIL images lazily — only load paths for now
+    # EndToEndClassifier.fit() takes lists of PIL images
+    train_paths = [image_paths[i] for i in train_idx]
+    test_paths = [image_paths[i] for i in test_idx]
+    y_train = labels[train_idx]
+    y_test = labels[test_idx]
+
+    # Load images into memory (required for end-to-end training)
+    print(f"  Loading {len(train_paths)} training images into memory...")
+    train_images = []
+    for p in train_paths:
+        try:
+            train_images.append(Image.open(str(p)).convert("RGB"))
+        except Exception:
+            train_images.append(Image.new("RGB", (384, 384)))
+
+    print(f"  Loading {len(test_paths)} test images into memory...")
+    test_images = []
+    for p in test_paths:
+        try:
+            test_images.append(Image.open(str(p)).convert("RGB"))
+        except Exception:
+            test_images.append(Image.new("RGB", (384, 384)))
+
+    # Train end-to-end
+    print(f"  Fine-tuning SigLIP (last {unfreeze_layers} layers, {epochs} epochs)")
+    print(f"  Device: {device}")
+
+    model = EndToEndClassifier(
+        model_name=config["model"]["name"],
+        hidden_dim=256,
+        n_classes=2,
+        dropout=0.3,
+        unfreeze_layers=unfreeze_layers,
+        lr_head=1e-3,
+        lr_backbone=1e-5,
+        epochs=epochs,
+        batch_size=8,
+        patience=5,
+        device=device,
+    )
+
+    model.fit(train_images, y_train, val_images=test_images, val_labels=y_test)
+
+    # Evaluate
+    y_pred = model.predict(test_images)
+    test_acc = float(np.mean(y_pred == y_test))
+    test_f1 = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
+    test_f1_bin = float(f1_score(y_test, y_pred, pos_label=1, zero_division=0))
+
+    print(f"\n  Fine-tuned results:")
+    print(f"    Test acc={test_acc:.3f}  F1 macro={test_f1:.3f}  F1(malignant)={test_f1_bin:.3f}")
+
+    # Export
+    export_dir = cache_dir / "finetuned_model"
+    model.export_for_inference(str(export_dir))
+    print(f"  Model exported to {export_dir}/")
+
+    # Save results
+    results = {
+        "test_accuracy": test_acc,
+        "test_f1_macro": test_f1,
+        "test_f1_malignant": test_f1_bin,
+        "epochs": epochs,
+        "unfreeze_layers": unfreeze_layers,
+        "training_history": model.training_history,
+    }
+    with open(cache_dir / "finetune_results.json", "w") as f:
+        json.dump(results, f, indent=2)
+
+    # Free memory
+    del train_images, test_images, model
+    if device == "cuda":
+        __import__("torch").cuda.empty_cache()
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Stage 5: Evaluate with fairness metrics
 # ---------------------------------------------------------------------------
 
@@ -487,7 +616,7 @@ def stage_evaluate():
     triage = TriageSystem(config.get("triage", {}))
 
     # Evaluate each trained model
-    model_names = ["baseline", "logistic", "deep"]
+    model_names = ["baseline", "logistic", "xgboost", "deep"]
     all_results = {}
 
     for model_name in model_names:
@@ -628,6 +757,12 @@ def main():
                         help="Run everything except the web app")
     parser.add_argument("--app-only", action="store_true",
                         help="Only launch the web app")
+    parser.add_argument("--finetune", action="store_true",
+                        help="Fine-tune SigLIP end-to-end (GPU required, slow)")
+    parser.add_argument("--finetune-epochs", type=int, default=10,
+                        help="Epochs for end-to-end fine-tuning (default: 10)")
+    parser.add_argument("--finetune-layers", type=int, default=4,
+                        help="Number of SigLIP layers to unfreeze (default: 4)")
     args = parser.parse_args()
 
     _banner("SkinTag Pipeline")
@@ -671,6 +806,14 @@ def main():
         # Stage 4: Train models
         _run_stage("4. Train Models", stage_train_models, embeddings, labels, metadata)
 
+        # Stage 4b: Fine-tune SigLIP end-to-end (optional)
+        if args.finetune:
+            _run_stage(
+                "4b. Fine-Tune SigLIP (End-to-End)",
+                stage_finetune, image_paths, labels, metadata,
+                args.finetune_epochs, args.finetune_layers,
+            )
+
     # Stage 5: Evaluate
     _run_stage("5. Evaluate (Fairness)", stage_evaluate)
 
@@ -705,8 +848,11 @@ def _print_summary(t_start):
         ("embeddings.pt", "SigLIP embeddings"),
         ("classifier_baseline.pkl", "Baseline model (binary)"),
         ("classifier_logistic.pkl", "Logistic regression (binary)"),
+        ("classifier_xgboost.pkl", "XGBoost gradient boosting (binary)"),
         ("classifier_deep.pkl", "Deep MLP (binary)"),
         ("classifier.pkl", "Default binary model (for app)"),
+        ("finetuned_model/config.json", "Fine-tuned SigLIP config (optional)"),
+        ("finetuned_model/model_state.pt", "Fine-tuned SigLIP weights (optional)"),
         ("classifier_condition_logistic.pkl", "Logistic regression (condition)"),
         ("classifier_condition_deep.pkl", "Deep MLP (condition)"),
         ("classifier_condition.pkl", "Default condition model"),

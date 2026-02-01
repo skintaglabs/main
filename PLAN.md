@@ -220,11 +220,15 @@ data/                                  # gitignored — all datasets stored loca
 | Model | Type | Architecture | How it works |
 |-------|------|-------------|-------------|
 | **Naive baseline** | Majority class | Always predicts "benign" | No training. Sets floor for accuracy. |
-| **Classical ML** | Logistic Regression | StandardScaler -> LogisticRegression on 1152-d SigLIP embeddings | sklearn, sub-second training |
-| **Deep learning** | Fine-tuned MLP head | 2-layer MLP (1152->256->2) with dropout+BatchNorm on SigLIP embeddings | PyTorch, early stopping, class-weighted loss |
-| **End-to-end** (optional) | Fine-tuned SigLIP | Unfreezes last N transformer layers + classification head | GPU required, best accuracy for deployment |
+| **Logistic Regression** | Classical ML | StandardScaler -> LogisticRegression on 1152-d SigLIP embeddings | sklearn, sub-second training |
+| **XGBoost** | Gradient boosting | XGBClassifier on 1152-d SigLIP embeddings | Best F1 macro (0.938), best AUC (0.990) |
+| **Deep MLP** | Fine-tuned MLP head | 2-layer MLP (1152->256->2) with dropout+BatchNorm on SigLIP embeddings | PyTorch, early stopping, class-weighted loss |
+| **Fine-tuned SigLIP** | End-to-end | Unfreezes last 4 transformer layers + classification head | Best test acc (0.923), best F1 malignant (0.824). GPU required. |
 
-The **deployed model** will be whichever performs best on the cross-domain evaluation, ranked by **F1 macro** (the primary metric for imbalanced dermatology data).
+**Deployment models:**
+- **Web app (GPU available)**: Fine-tuned SigLIP — highest accuracy for users with internet access
+- **Web app (CPU fallback)**: XGBoost on frozen SigLIP embeddings — fast, lightweight, highest F1 macro
+- **Mobile (offline)**: Distilled lightweight model (see Phase 2B) — target <25 MB on-device
 
 ### Full Pipeline Results (47,277 samples, 5 datasets)
 
@@ -233,21 +237,26 @@ The **deployed model** will be whichever performs best on the cross-domain evalu
 | Model | Train Acc | Test Acc | F1 Macro | F1 Malignant | AUC |
 |-------|-----------|----------|----------|--------------|-----|
 | Baseline | 0.791 | 0.791 | 0.442 | 0.000 | 0.500 |
-| Logistic | 0.838 | 0.840 | 0.792 | 0.660 | 0.922 |
-| **Deep MLP** | **0.913** | **0.908** | **0.878** | **0.753** | **0.980** |
+| Logistic | 0.838 | 0.821 | 0.769 | 0.660 | 0.922 |
+| XGBoost | 0.973 | 0.897 | 0.938 | 0.768 | 0.990 |
+| Deep MLP | 0.787 | 0.780 | 0.748 | 0.628 | 0.912 |
+| **Fine-tuned SigLIP** | **—** | **0.923** | **0.887** | **0.824** | **—** |
 
-**Best binary model: Deep MLP** (F1 macro=0.878, AUC=0.980)
+**Best embedding-based model: XGBoost** (F1 macro=0.938, AUC=0.990)
+**Best end-to-end model: Fine-tuned SigLIP** (Test acc=0.923, F1 malignant=0.824)
 
-**Fairness (Deep MLP):**
-- Fitzpatrick equalized odds gap: sensitivity=0.051, specificity=0.212
-- Domain equalized odds gap: sensitivity=0.036, specificity=0.110
+The fine-tuned SigLIP (last 4 transformer layers unfrozen, 10 epochs) achieves the highest test accuracy and best malignant-class F1 of any model. XGBoost on frozen embeddings achieves the highest F1 macro.
+
+**Fairness (XGBoost — best embedding model):**
+- Fitzpatrick equalized odds gap: sensitivity=0.044, specificity=0.091
+- Domain equalized odds gap: sensitivity=0.033, specificity=0.064
 
 **Condition Classification (10-class):**
 
 | Model | Test Acc | F1 Macro |
 |-------|----------|----------|
 | Logistic | 0.684 | 0.596 |
-| Deep MLP | 0.680 | 0.631 |
+| Deep MLP | 0.599 | 0.533 |
 
 **Per-condition F1 (logistic, evaluation split):**
 
@@ -265,6 +274,21 @@ The **deployed model** will be whichever performs best on the cross-domain evalu
 | Other/Unknown | 0.707 | 2,954 |
 
 **Backbone**: google/siglip-so400m-patch14-384 (878M params, 1152-d embeddings)
+
+### Saved Model Artifacts
+
+The fine-tuned SigLIP model is saved in two locations:
+- **Cache** (ephemeral): `results/cache/finetuned_model/` — may be cleared between runs
+- **Dedicated backup** (permanent): `models/finetuned_siglip/` — tracked in git (config only; weights gitignored due to size)
+
+Contents of `models/finetuned_siglip/`:
+| File | Size | Description |
+|------|------|-------------|
+| `config.json` | <1 KB | Model architecture config (tracked in git) |
+| `head_state.pt` | ~1.2 MB | Classification head weights only |
+| `model_state.pt` | ~3.3 GB | Full fine-tuned SigLIP + head weights |
+
+To restore from backup, load with `EndToEndSigLIP` using the config and `model_state.pt`.
 
 ---
 
@@ -316,6 +340,11 @@ SkinTag/
 │       └── index.html                 # Polished dark-theme frontend with risk gauge
 ├── configs/
 │   └── config.yaml                    # All configuration (data, training, triage thresholds)
+├── models/
+│   └── finetuned_siglip/              # Dedicated backup of fine-tuned model
+│       ├── config.json                # Architecture config (tracked in git)
+│       ├── head_state.pt              # Classification head only (~1.2 MB)
+│       └── model_state.pt             # Full fine-tuned SigLIP (~3.3 GB, gitignored)
 ├── data/                              # gitignored — local datasets
 ├── notebooks/
 │   ├── colab_demo.ipynb               # Google Colab demo notebook
@@ -493,3 +522,68 @@ make app-docker-gpu
 9. **Lazy/streaming image loading** — Dataset loaders store file paths, not PIL images. The embedding extractor loads images per-batch from disk, keeping only a few images in RAM at any time. This reduced data loading from ~393s to ~2s for 29k samples and avoids multi-GB RAM usage.
 
 10. **GPU auto-detection** — Pipeline auto-detects CUDA availability and adjusts batch size (4 for CPU, 16 for GPU). With RTX 4070 Ti SUPER (16GB VRAM), full-dataset embedding extraction runs significantly faster than CPU.
+
+---
+
+## Phase 2: Deployment Roadmap
+
+### 2A. Web Application (Internet-Connected)
+
+A cloud-hosted web app that allows users to upload a photo from any device with an internet connection and receive triage results in real time.
+
+**Architecture:**
+- **Backend**: FastAPI server hosting the fine-tuned SigLIP model (or XGBoost on pre-extracted embeddings as a fast fallback)
+- **Frontend**: Responsive web UI (mobile-first design) with camera capture and image upload
+- **Inference flow**: User uploads image -> server runs SigLIP embedding extraction -> classification head -> triage tier + condition estimate returned to client
+- **Hosting options**: Cloud GPU instance (e.g., AWS/GCP with T4), or CPU-only with the lightweight XGBoost pipeline (embeddings + XGBoost, no fine-tuned backbone needed at inference)
+
+**Key tasks:**
+1. Refactor `app/main.py` to support both model backends (fine-tuned SigLIP end-to-end vs. XGBoost on frozen embeddings)
+2. Add mobile-responsive camera capture (HTML5 `getUserMedia` API) for phone-based photo taking
+3. Deploy behind HTTPS with rate limiting and input validation (image size, format checks)
+4. Add result explanation panel: triage tier, condition estimate, confidence, and prominent medical disclaimer
+5. Containerize with Docker for reproducible deployment (existing `Dockerfile` as starting point)
+6. Evaluate hosting: HuggingFace Spaces (free GPU), AWS SageMaker, or GCP Cloud Run
+
+**Model selection for web:**
+- **Primary**: Fine-tuned SigLIP (`models/finetuned_siglip/`) — best accuracy (92.3%), requires GPU or beefy CPU
+- **Fallback**: XGBoost on frozen SigLIP embeddings — F1 macro 0.938, runs on CPU, only needs the frozen SigLIP encoder (no fine-tuned weights)
+
+### 2B. Offline Mobile Application (No Internet Required)
+
+A native mobile app (Android and/or iOS) that runs inference entirely on-device, enabling use in areas without reliable internet connectivity — critical for the low-resource settings this project targets.
+
+**Core challenge:** The full fine-tuned SigLIP is ~3.3 GB — too large for most mobile devices. A lightweight model is required.
+
+**Model compression strategy:**
+1. **Export classification head only** (~1.2 MB, `head_state.pt`) — pair with a smaller on-device vision backbone
+2. **Knowledge distillation**: Train a smaller student model (e.g., MobileNetV3, EfficientNet-Lite, or SigLIP-B/16 at 86M params) to mimic the fine-tuned SigLIP's predictions. Target model size: 20-50 MB
+3. **ONNX/TFLite export**: Convert the distilled model to ONNX (Android via ONNX Runtime) or TFLite (Android + iOS via TensorFlow Lite / Core ML)
+4. **Quantization**: Apply INT8 post-training quantization to further reduce model size and improve inference speed on mobile hardware (ARM NEON / Apple Neural Engine)
+
+**Platform strategy:**
+
+| Platform | Runtime | Format | Framework |
+|----------|---------|--------|-----------|
+| Android | ONNX Runtime Mobile / TFLite | `.onnx` or `.tflite` | Kotlin/Java + CameraX |
+| iOS | Core ML | `.mlmodel` (converted from ONNX) | Swift + AVFoundation |
+| Cross-platform | React Native or Flutter | TFLite via plugin | Single codebase for both |
+
+**Key tasks:**
+1. Select a lightweight backbone (MobileNetV3-Large or EfficientNet-Lite0 are strong candidates at ~5-20 MB)
+2. Implement knowledge distillation: fine-tuned SigLIP as teacher, lightweight model as student, train on the same 47k dataset
+3. Validate distilled model achieves acceptable accuracy (target: >85% test acc, >0.75 F1 malignant — within ~5% of the teacher)
+4. Export to ONNX and convert to platform-specific formats (TFLite, Core ML)
+5. Build minimal mobile app with camera capture, on-device inference, and triage display
+6. Handle edge cases: poor lighting, blurry images, non-lesion photos (OOD detection)
+7. Package model weights inside the app binary (no download required after install)
+
+**Estimated model sizes after distillation + quantization:**
+
+| Model | FP32 | INT8 Quantized |
+|-------|------|----------------|
+| MobileNetV3-Large + head | ~22 MB | ~6 MB |
+| EfficientNet-Lite0 + head | ~19 MB | ~5 MB |
+| SigLIP-B/16 (small) + head | ~350 MB | ~90 MB |
+
+MobileNetV3-Large is the recommended starting point: small enough for any phone, well-supported by TFLite/Core ML, and proven effective for medical imaging transfer learning.

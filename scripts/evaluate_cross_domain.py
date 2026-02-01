@@ -66,6 +66,9 @@ def run_experiment(
         elif model_type == "logistic":
             clf = SklearnClassifier(classifier_type="logistic")
             clf.fit(X_train, y_train, sample_weight=sample_weights)
+        elif model_type == "xgboost":
+            clf = SklearnClassifier(classifier_type="xgboost")
+            clf.fit(X_train, y_train, sample_weight=sample_weights)
         elif model_type == "deep":
             clf = DeepClassifier(embedding_dim=X_train.shape[1], device=device)
             clf.fit(X_train, y_train, sample_weight=sample_weights)
@@ -166,7 +169,7 @@ def main():
 
     # Run experiments
     all_experiments = {}
-    model_types = ["baseline", "logistic", "deep"]
+    model_types = ["baseline", "logistic", "xgboost", "deep"]
     balance_modes = [False, True]
 
     for model_type in model_types:

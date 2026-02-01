@@ -53,6 +53,14 @@ huggingface/
 results/*
 !results/.gitkeep
 
+# Saved models (keep structure, track config, ignore weights)
+models/*
+!models/.gitkeep
+!models/finetuned_siglip/
+models/finetuned_siglip/*
+!models/finetuned_siglip/.gitkeep
+!models/finetuned_siglip/config.json
+
 # Kaggle credentials
 .kaggle/
 kaggle.json

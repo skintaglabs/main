@@ -83,11 +83,12 @@ def main():
             meta_train["domain"].values, y_train
         )
 
-    # Train all 3 models
+    # Train all models (baseline, classical, gradient boosted, deep)
     models = {
         "majority_baseline": MajorityClassBaseline(),
         "random_baseline": RandomWeightedBaseline(seed=seed),
         "logistic_regression": SklearnClassifier(classifier_type="logistic"),
+        "xgboost": SklearnClassifier(classifier_type="xgboost"),
         "deep_mlp": DeepClassifier(embedding_dim=X_train.shape[1], device=device),
     }
 

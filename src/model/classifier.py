@@ -8,14 +8,37 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
 
-class SklearnClassifier:
-    """Fast, lightweight classifier using sklearn. Recommended for hackathons."""
+def _make_xgboost_clf(n_classes=2):
+    """Create an XGBoost classifier with tuned hyperparameters for SigLIP embeddings."""
+    from xgboost import XGBClassifier
+    return XGBClassifier(
+        n_estimators=500,
+        max_depth=6,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        min_child_weight=3,
+        gamma=0.1,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
+        objective="binary:logistic" if n_classes == 2 else "multi:softprob",
+        eval_metric="logloss",
+        tree_method="hist",  # fast CPU, also supports GPU via "gpu_hist"
+        random_state=42,
+        n_jobs=-1,
+    )
 
-    def __init__(self, classifier_type: str = "logistic"):
+
+class SklearnClassifier:
+    """Fast, lightweight classifier using sklearn (or XGBoost). Recommended for hackathons."""
+
+    def __init__(self, classifier_type: str = "logistic", n_classes: int = 2):
         if classifier_type == "logistic":
             clf = LogisticRegression(max_iter=1000)
         elif classifier_type == "mlp":
             clf = MLPClassifier(hidden_layer_sizes=(256,), max_iter=500, early_stopping=True)
+        elif classifier_type == "xgboost":
+            clf = _make_xgboost_clf(n_classes=n_classes)
         else:
             raise ValueError(f"Unknown classifier type: {classifier_type}")
 

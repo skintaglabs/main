@@ -1,0 +1,7 @@
+{
+  "model_name": "google/siglip-so400m-patch14-384",
+  "hidden_dim": 256,
+  "n_classes": 2,
+  "dropout": 0.3,
+  "unfreeze_layers": 4
+}
