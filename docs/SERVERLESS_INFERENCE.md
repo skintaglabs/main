@@ -17,6 +17,8 @@ Get from:
 - API token: https://dash.cloudflare.com/profile/api-tokens
 - Account ID: https://dash.cloudflare.com/ (in sidebar)
 
+**Note:** HF_TOKEN optional (public models work without it)
+
 Then: Actions → Deploy Inference Server → Run workflow
 
 ## Features

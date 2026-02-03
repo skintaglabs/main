@@ -6,11 +6,12 @@ Fine-tuned model hosted at [DTanzillo/MedGemma540](https://huggingface.co/DTanzi
 
 ```bash
 export USE_HF_MODELS=true
-export HF_TOKEN=your_token  # For private repos
 make app
 ```
 
 Auto-downloads fine-tuned SigLIP model from HF and caches in `~/.cache/huggingface/skintag/`.
+
+**Note:** HF_TOKEN only needed for private repos.
 
 ## Upload Models
 
