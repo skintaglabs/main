@@ -133,11 +133,12 @@ jobs:
           echo "✓ Tunnel URL: $TUNNEL_URL"
           echo "✓ Tunnel ID: $TUNNEL_ID"
 
-      - name: Publish API endpoint to gh-pages
+      - name: Publish API endpoint
         if: env.TUNNEL_URL != ''
         run: |
-          # Create API config JSON
-          cat > api-config.json <<EOF
+          # Create API config in .github/ (minimal main branch pollution)
+          mkdir -p .github
+          cat > .github/api-config.json <<EOF
           {
             "apiUrl": "${{ env.TUNNEL_URL }}",
             "status": "online",
@@ -145,23 +146,27 @@ jobs:
           }
           EOF
 
-          # Push to gh-pages branch (keeps main clean)
+          # Commit to main with [skip ci] (won't trigger deploy-webapp)
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Fetch and checkout gh-pages
-          git fetch origin gh-pages || true
-          git checkout gh-pages || git checkout --orphan gh-pages
+          git fetch origin main
+          git checkout main
+          git pull origin main
 
-          # Update only api-config.json
-          mv api-config.json ./
-          git add api-config.json
+          mkdir -p .github
+          cat > .github/api-config.json <<EOF
+          {
+            "apiUrl": "${{ env.TUNNEL_URL }}",
+            "status": "online",
+            "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
 
-          if ! git diff --quiet HEAD -- api-config.json 2>/dev/null; then
-            git commit -m "Update API endpoint: ${{ env.TUNNEL_URL }}"
-            git push origin gh-pages || echo "::warning::Failed to push to gh-pages"
-          else
-            echo "API config unchanged"
+          git add .github/api-config.json
+          if ! git diff --quiet HEAD -- .github/api-config.json 2>/dev/null; then
+            git commit -m "Update API endpoint [skip ci]"
+            git push origin main
           fi
 
       - name: Cancel previous workflow

@@ -42,12 +42,6 @@ jobs:
           NEXT_PUBLIC_API_URL: ${{ secrets.API_URL }}
         run: npm run build
 
-      - name: Fetch API config from gh-pages
-        continue-on-error: true
-        run: |
-          git fetch origin gh-pages || true
-          git show origin/gh-pages:api-config.json > api-config.json 2>/dev/null || echo '{"apiUrl":"","status":"offline"}' > api-config.json
-
       - name: Prepare deployment structure
         run: |
           mkdir -p dist
@@ -55,8 +49,12 @@ jobs:
           cp public/index.html dist/
           # Copy classic version
           cp -r public/classic dist/
-          # Copy API config from gh-pages
-          cp api-config.json dist/
+          # Copy API config from .github/ if it exists
+          if [ -f .github/api-config.json ]; then
+            cp .github/api-config.json dist/
+          else
+            echo '{"apiUrl":"","status":"offline"}' > dist/api-config.json
+          fi
           # Copy Next.js build to app/
           cp -r app/skintag-webapp/out dist/app
           # Configure API URL for classic version (fallback)
