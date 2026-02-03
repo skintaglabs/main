@@ -97,17 +97,34 @@ jobs:
           TUNNEL_TOKEN: ${{ secrets.SKINTAG_TUNNEL_TOKEN }}
         run: |
           ./cloudflared tunnel run --token "$TUNNEL_TOKEN" > tunnel.log 2>&1 &
-          sleep 10
+          TUNNEL_PID=$!
 
-          # Extract tunnel URL from logs
-          TUNNEL_URL=$(grep -oP 'https://[a-z0-9-]+\.cfargotunnel\.com' tunnel.log | head -1)
+          # Wait for tunnel to be ready and extract URL
+          echo "Waiting for tunnel to start..."
+          for i in {1..30}; do
+            if grep -q "Connection.*registered" tunnel.log 2>/dev/null; then
+              echo "Tunnel connected!"
+              break
+            fi
+            sleep 2
+          done
+
+          # Extract tunnel URL (case-insensitive, handles various formats)
+          TUNNEL_URL=$(grep -oiE 'https://[a-z0-9-]+\.cfargotunnel\.com' tunnel.log | head -1)
 
           if [ -z "$TUNNEL_URL" ]; then
-            echo "Warning: Could not extract tunnel URL from logs"
+            echo "::warning::Could not extract tunnel URL from logs"
+            echo "Tunnel logs:"
             cat tunnel.log
-          else
+            # Try alternative extraction methods
+            TUNNEL_URL=$(grep -oE 'https://[^ ]+\.trycloudflare\.com' tunnel.log | head -1)
+          fi
+
+          if [ -n "$TUNNEL_URL" ]; then
             echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
             echo "✓ Tunnel URL: $TUNNEL_URL"
+          else
+            echo "::error::Failed to extract tunnel URL"
           fi
 
       - name: Publish API endpoint
