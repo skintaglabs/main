@@ -6,14 +6,20 @@ import { Camera, Upload, RotateCcw, CheckCircle, AlertTriangle, AlertCircle, Inf
 
 // Types
 interface AnalysisResult {
-  class_label: number;
-  confidence: number;
-  probabilities: { class_0: number; class_1: number };
   risk_score: number;
-  urgency_tier: 'low' | 'medium' | 'high';
+  urgency_tier: 'low' | 'moderate' | 'high';
   recommendation: string;
-  classification: string;
-  description: string;
+  confidence: string;
+  disclaimer: string;
+  probabilities: {
+    benign: number;
+    malignant: number;
+  };
+  condition_estimate?: string;
+  condition_probabilities?: Array<{
+    condition: string;
+    probability: number;
+  }>;
 }
 
 type AppState = 'upload' | 'analyzing' | 'results';
@@ -30,53 +36,36 @@ const CLASS_LABELS = {
 };
 
 const URGENCY_CONFIG = {
-  low: { icon: CheckCircle, color: 'text-risk-low', bg: 'bg-risk-low/10', border: 'border-risk-low/30', barBg: 'bg-risk-low', label: 'Low Urgency' },
-  medium: { icon: AlertTriangle, color: 'text-risk-medium', bg: 'bg-risk-medium/10', border: 'border-risk-medium/30', barBg: 'bg-risk-medium', label: 'Moderate Urgency' },
-  high: { icon: AlertCircle, color: 'text-risk-high', bg: 'bg-risk-high/10', border: 'border-risk-high/30', barBg: 'bg-risk-high', label: 'Higher Urgency' }
+  low: { icon: CheckCircle, color: 'text-risk-low', bg: 'bg-risk-low/10', border: 'border-risk-low/30', barBg: 'bg-risk-low', label: 'Low Concern' },
+  moderate: { icon: AlertTriangle, color: 'text-risk-medium', bg: 'bg-risk-medium/10', border: 'border-risk-medium/30', barBg: 'bg-risk-medium', label: 'Moderate Concern' },
+  high: { icon: AlertCircle, color: 'text-risk-high', bg: 'bg-risk-high/10', border: 'border-risk-high/30', barBg: 'bg-risk-high', label: 'High Concern' }
 };
 
-// Simulate analysis (replace with real API call)
-async function analyzeImage(imageData: string): Promise<AnalysisResult> {
-  await new Promise(resolve => setTimeout(resolve, 2500));
+// API configuration
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-  // Hash for deterministic demo results
-  let hash = 0;
-  for (let i = 0; i < Math.min(imageData.length, 500); i++) {
-    hash = ((hash << 5) - hash) + imageData.charCodeAt(i);
-    hash = hash & hash;
+// Real API call to external inference server
+async function analyzeImage(file: File): Promise<AnalysisResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_URL}/api/analyze`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Analysis failed' }));
+    throw new Error(error.detail || 'Analysis failed');
   }
-  hash = Math.abs(hash);
 
-  const classLabel = (hash % 100) < 70 ? 0 : 1;
-  const confidence = 0.65 + ((hash >> 8) % 30) / 100;
-  const class1Prob = classLabel === 1 ? confidence : (1 - confidence);
-  const riskScore = classLabel === 1 ? 0.5 + (confidence * 0.5) : (1 - confidence) * 0.4;
-
-  const urgencyTier: 'low' | 'medium' | 'high' =
-    riskScore >= 0.6 ? 'high' :
-    riskScore >= 0.3 ? 'medium' : 'low';
-
-  const recommendations = {
-    low: 'Continue regular self-monitoring. Photograph this lesion monthly to track changes.',
-    medium: 'Schedule an appointment with a dermatologist for professional evaluation.',
-    high: 'Please consult a dermatologist promptly for professional evaluation.'
-  };
-
-  return {
-    class_label: classLabel,
-    confidence,
-    probabilities: { class_0: 1 - class1Prob, class_1: class1Prob },
-    risk_score: riskScore,
-    urgency_tier: urgencyTier,
-    recommendation: recommendations[urgencyTier],
-    classification: CLASS_LABELS[classLabel as 0 | 1].name,
-    description: CLASS_LABELS[classLabel as 0 | 1].description
-  };
+  return await response.json();
 }
 
 export default function SkinTag() {
   const [state, setState] = useState<AppState>('upload');
   const [image, setImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [analysisStep, setAnalysisStep] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -111,21 +100,33 @@ export default function SkinTag() {
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
+
+    // Convert canvas to blob then file
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' });
+        const imageUrl = canvas.toDataURL('image/jpeg', 0.9);
+        handleImageSelected(file, imageUrl);
+      }
+    }, 'image/jpeg', 0.9);
+
     stopCamera();
-    await handleImageSelected(canvas.toDataURL('image/jpeg', 0.9));
   }, [stopCamera]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => handleImageSelected(event.target?.result as string);
+      reader.onload = (event) => {
+        handleImageSelected(file, event.target?.result as string);
+      };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleImageSelected = async (imageData: string) => {
-    setImage(imageData);
+  const handleImageSelected = async (file: File, previewUrl: string) => {
+    setImage(previewUrl);
+    setSelectedFile(file);
     setState('analyzing');
     setAnalysisStep(0);
 
@@ -134,12 +135,15 @@ export default function SkinTag() {
     }, 500);
 
     try {
-      const analysisResult = await analyzeImage(imageData);
+      const analysisResult = await analyzeImage(file);
       setResult(analysisResult);
       setState('results');
-    } catch {
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      alert(error instanceof Error ? error.message : 'Analysis failed. Please try again.');
       setState('upload');
       setImage(null);
+      setSelectedFile(null);
     } finally {
       clearInterval(stepInterval);
     }
@@ -147,6 +151,7 @@ export default function SkinTag() {
 
   const reset = () => {
     setImage(null);
+    setSelectedFile(null);
     setResult(null);
     setState('upload');
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -291,7 +296,7 @@ export default function SkinTag() {
                     <Icon size={14} className={config.color} />
                     <span className={`text-xs font-medium ${config.color}`}>{config.label}</span>
                   </div>
-                  <h2 className="font-serif text-xl text-charcoal">{result.classification}</h2>
+                  <h2 className="font-serif text-xl text-charcoal">Analysis Complete</h2>
                 </div>
               </div>
 
@@ -309,7 +314,7 @@ export default function SkinTag() {
                     className={`h-full rounded-full ${config.barBg}`}
                   />
                 </div>
-                <p className="text-xs text-charcoal-light mt-3">{result.description}</p>
+                <p className="text-xs text-charcoal-light mt-3">Confidence: {result.confidence}</p>
               </div>
 
               {/* Recommendation */}
@@ -330,28 +335,49 @@ export default function SkinTag() {
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-charcoal">Benign</span>
-                      <span className="text-charcoal-light">{(result.probabilities.class_0 * 100).toFixed(1)}%</span>
+                      <span className="text-charcoal-light">{(result.probabilities.benign * 100).toFixed(1)}%</span>
                     </div>
                     <div className="h-1.5 bg-charcoal/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-risk-low rounded-full" style={{ width: `${result.probabilities.class_0 * 100}%` }} />
+                      <div className="h-full bg-risk-low rounded-full" style={{ width: `${result.probabilities.benign * 100}%` }} />
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-charcoal">Suspicious</span>
-                      <span className="text-charcoal-light">{(result.probabilities.class_1 * 100).toFixed(1)}%</span>
+                      <span className="text-charcoal">Malignant</span>
+                      <span className="text-charcoal-light">{(result.probabilities.malignant * 100).toFixed(1)}%</span>
                     </div>
                     <div className="h-1.5 bg-charcoal/10 rounded-full overflow-hidden">
-                      <div className="h-full bg-risk-high rounded-full" style={{ width: `${result.probabilities.class_1 * 100}%` }} />
+                      <div className="h-full bg-risk-high rounded-full" style={{ width: `${result.probabilities.malignant * 100}%` }} />
                     </div>
                   </div>
                 </div>
               </div>
 
+              {/* Condition Estimate (if available) */}
+              {result.condition_estimate && result.condition_probabilities && (
+                <div className="rounded-2xl p-4 bg-warm-white border border-sage-light/30 mb-4">
+                  <p className="text-xs font-medium text-charcoal mb-2">Estimated Condition</p>
+                  <p className="text-base font-serif text-charcoal mb-3">{result.condition_estimate}</p>
+                  <div className="space-y-1.5">
+                    {result.condition_probabilities.map((cond, idx) => (
+                      <div key={idx}>
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-charcoal">{cond.condition}</span>
+                          <span className="text-charcoal-light">{(cond.probability * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="h-1 bg-charcoal/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-sage rounded-full" style={{ width: `${cond.probability * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Disclaimer */}
               <div className="rounded-2xl p-4 bg-charcoal/5 border border-charcoal/10 mb-4">
                 <p className="text-[11px] text-charcoal leading-relaxed">
-                  Condition estimation is approximate, based on visual similarity to <strong>47,277 training images</strong> across <strong>10 diagnostic categories</strong>. Only a biopsy can confirm a diagnosis.
+                  <strong>Important:</strong> {result.disclaimer}
                 </p>
               </div>
 

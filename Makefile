@@ -1,8 +1,9 @@
-.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app app-docker app-docker-gpu upload-model clean
+.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app app-remote stop app-docker app-docker-gpu upload-model clean
 
 # Python interpreter (prefers venv if available)
 PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo python3; fi)
 PYTHON_ENV := OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=.
+PORT := 8000
 
 help:
 	@echo "Usage: make [target]"
@@ -30,6 +31,8 @@ help:
 	@echo ""
 	@echo "Application:"
 	@echo "  app                Run web app locally"
+	@echo "  app-remote         Run web app + ngrok tunnel (HTTPS)"
+	@echo "  stop               Stop server and ngrok"
 	@echo "  app-docker         Build and run web app in Docker (CPU)"
 	@echo "  app-docker-gpu     Build and run web app in Docker (GPU)"
 	@echo ""
@@ -108,7 +111,16 @@ evaluate-cross-domain:
 
 # Application
 app:
-	$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+	$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT) --reload
+
+app-remote:
+	@$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT) --reload & sleep 2 && ngrok http $(PORT)
+
+stop:
+	@pkill -f "uvicorn app.main:app" 2>/dev/null || true
+	@pkill -f ngrok 2>/dev/null || true
+	@lsof -ti:$(PORT) | xargs kill -9 2>/dev/null || true
+	@echo "Stopped"
 
 app-docker:
 	docker build -t skintag .
