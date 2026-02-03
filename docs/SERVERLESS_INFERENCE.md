@@ -31,7 +31,7 @@ The setup script will output the full URL. Configure your frontend to use this a
 
 - Free (2000 min/month)
 - Auto-restart every 5.5h
-- ~2-3 min cold start
+- ~1-2 min cold start (optimized with uv)
 
 ## Limits
 
