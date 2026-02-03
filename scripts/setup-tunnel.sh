@@ -10,19 +10,24 @@ REPO="${GITHUB_REPOSITORY:-MedGemma540/SkinTag}"
 echo "=== SkinTag Cloudflare Tunnel Setup ==="
 echo ""
 
+# Load .env file if it exists
+if [ -f .env ]; then
+    echo "Loading credentials from .env..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
 # Check for Cloudflare API token
 if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-    echo "Error: CLOUDFLARE_API_TOKEN environment variable not set"
+    echo "Error: CLOUDFLARE_API_TOKEN not found"
     echo ""
-    echo "Get your API token from:"
-    echo "  https://dash.cloudflare.com/profile/api-tokens"
+    echo "Option 1 - Create .env file:"
+    echo "  echo 'CLOUDFLARE_API_TOKEN=your_token' > .env"
     echo ""
-    echo "Required permissions:"
-    echo "  - Account: Cloudflare Tunnel (Edit)"
+    echo "Option 2 - Export variable:"
+    echo "  export CLOUDFLARE_API_TOKEN=your_token"
     echo ""
-    echo "Then run:"
-    echo "  export CLOUDFLARE_API_TOKEN=your_token_here"
-    echo "  ./scripts/setup-tunnel.sh"
+    echo "Get token from: https://dash.cloudflare.com/profile/api-tokens"
+    echo "Required permission: Account: Cloudflare Tunnel (Edit)"
     exit 1
 fi
 
