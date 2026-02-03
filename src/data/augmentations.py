@@ -3,10 +3,21 @@
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-from src.data.dermoscope_aug import (
-    get_dermoscope_removal_pipeline,
-    get_dermoscope_addition_pipeline,
-)
+# Dermoscope augmentation module not implemented yet
+# from src.data.dermoscope_aug import (
+#     get_dermoscope_removal_pipeline,
+#     get_dermoscope_addition_pipeline,
+# )
+
+
+def get_dermoscope_removal_pipeline(p: float = 0.5):
+    """Placeholder for dermoscope artifact removal."""
+    return A.Compose([])
+
+
+def get_dermoscope_addition_pipeline(p: float = 0.5):
+    """Placeholder for dermoscope artifact addition."""
+    return A.Compose([])
 
 
 def get_lighting_augmentation():

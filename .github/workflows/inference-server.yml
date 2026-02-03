@@ -1,0 +1,238 @@
+name: Deploy Inference Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_hours:
+        description: 'Duration (max 5.5 hours)'
+        required: false
+        default: '5'
+        type: string
+      auto_restart:
+        description: 'Auto-restart before timeout'
+        required: false
+        default: true
+        type: boolean
+
+  repository_dispatch:
+    types: [restart-inference]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find previous workflow
+        id: find_previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API_RESPONSE=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/inference-server.yml/runs?status=in_progress")
+
+          PREVIOUS_RUN_ID=$(echo "$API_RESPONSE" | jq -r ".workflow_runs[] | select(.id < ${{ github.run_id }}) | .id" | head -1)
+
+          if [ -n "$PREVIOUS_RUN_ID" ] && [ "$PREVIOUS_RUN_ID" != "null" ]; then
+            echo "previous_run_id=$PREVIOUS_RUN_ID" >> $GITHUB_OUTPUT
+            echo "Found previous run: $PREVIOUS_RUN_ID"
+          else
+            echo "previous_run_id=" >> $GITHUB_OUTPUT
+            echo "No previous run found"
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download models from Hugging Face
+        env:
+          USE_HF_MODELS: true
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ secrets.HF_REPO_ID || 'MedGemma540/skintag-models' }}
+        run: |
+          python -c "from src.model.embeddings import EmbeddingExtractor; print('✓ Dependencies OK')"
+
+      - name: Setup Cloudflare Tunnel
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+
+      - name: Start inference server
+        env:
+          USE_HF_MODELS: true
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ secrets.HF_REPO_ID || 'MedGemma540/skintag-models' }}
+        run: |
+          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
+          echo $! > server.pid
+
+          # Wait for server to be ready
+          echo "Waiting for inference server..."
+          for i in {1..60}; do
+            if curl -sf http://localhost:8000/api/health | grep -q "ok"; then
+              echo "✓ Server ready!"
+              break
+            fi
+            echo "Attempt $i/60 - waiting..."
+            sleep 5
+          done
+
+      - name: Start tunnel
+        env:
+          TUNNEL_TOKEN: ${{ secrets.SKINTAG_TUNNEL_TOKEN }}
+        run: |
+          ./cloudflared tunnel run --token "$TUNNEL_TOKEN" &
+          sleep 5
+
+      - name: Cancel previous workflow
+        if: steps.find_previous.outputs.previous_run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ steps.find_previous.outputs.previous_run_id }}/cancel"
+
+          echo "Graceful handoff: waiting 30s for previous instance to shutdown"
+          sleep 30
+
+      - name: Health check
+        run: |
+          curl -sf http://localhost:8000/api/health || echo "Health check warning"
+          cat server.log | tail -20
+
+      - name: Monitor
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          cleanup() {
+            kill $(cat server.pid) 2>/dev/null || true
+            exit 0
+          }
+          trap cleanup SIGTERM SIGINT
+
+          # Function to generate fresh GitHub App token
+          generate_app_token() {
+            NOW=$(date +%s)
+            IAT=$((NOW - 60))
+            EXP=$((NOW + 600))
+
+            HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+            PAYLOAD=$(echo -n "{\"iat\":${IAT},\"exp\":${EXP},\"iss\":\"${APP_ID}\"}" | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+
+            SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign <(echo "$APP_PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+            JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+
+            INSTALLATION_ID=$(curl -s \
+              -H "Authorization: Bearer $JWT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/installation" | jq -r '.id')
+
+            if [ -z "$INSTALLATION_ID" ] || [ "$INSTALLATION_ID" = "null" ]; then
+              echo ""
+              return 1
+            fi
+
+            TOKEN=$(curl -sX POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" | jq -r '.token')
+
+            echo "$TOKEN"
+          }
+
+          DURATION_HOURS="${{ github.event.client_payload.duration_hours || github.event.inputs.duration_hours || '5' }}"
+          DURATION=$(awk "BEGIN {printf \"%.0f\", $DURATION_HOURS * 3600}")
+          RESTART_THRESHOLD=$((DURATION - 360))
+          START_TIME=$(date +%s)
+          RESTART_TRIGGERED=false
+
+          AUTO_RESTART="${{ github.event.client_payload.auto_restart || github.event.inputs.auto_restart }}"
+          if [ -z "$AUTO_RESTART" ]; then
+            AUTO_RESTART="true"
+          fi
+
+          echo "Duration: ${DURATION_HOURS}h | Auto-restart: $AUTO_RESTART"
+
+          while true; do
+            ELAPSED=$(($(date +%s) - START_TIME))
+            REMAINING=$((DURATION - ELAPSED))
+
+            SERVER_PID=$(cat server.pid 2>/dev/null || echo "")
+            if [ -n "$SERVER_PID" ] && kill -0 $SERVER_PID 2>/dev/null; then
+              SERVER_STATUS="running"
+            else
+              SERVER_STATUS="stopped"
+            fi
+
+            printf "[%s] Server: %s | %dm elapsed | %dm remaining\n" \
+              "$(date '+%H:%M:%S')" "$SERVER_STATUS" "$((ELAPSED/60))" "$((REMAINING/60))"
+
+            if [ "$SERVER_STATUS" != "running" ]; then
+              echo "Server died, restarting..."
+              python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
+              echo $! > server.pid
+            fi
+
+            if [ "$ELAPSED" -gt "$RESTART_THRESHOLD" ] && [ "$RESTART_TRIGGERED" = "false" ]; then
+              if [ "$AUTO_RESTART" = "true" ]; then
+                echo ""
+                echo "=========================================="
+                echo "Generating fresh token and triggering restart..."
+                echo "=========================================="
+
+                APP_TOKEN=$(generate_app_token)
+                if [ -z "$APP_TOKEN" ]; then
+                  echo "ERROR: Failed to generate app token"
+                  RESTART_TRIGGERED=true
+                else
+                  RESPONSE=$(curl -sX POST \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "Authorization: Bearer $APP_TOKEN" \
+                    -H "X-GitHub-Api-Version: 2022-11-28" \
+                    https://api.github.com/repos/${{ github.repository }}/dispatches \
+                    -d "{\"event_type\":\"restart-inference\",\"client_payload\":{\"duration_hours\":\"$DURATION_HOURS\",\"auto_restart\":$([ \"$AUTO_RESTART\" = \"true\" ] && echo \"true\" || echo \"false\")}}" \
+                    -w "\nHTTP_STATUS:%{http_code}" 2>&1)
+
+                  HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+
+                  if [ "$HTTP_CODE" = "204" ]; then
+                    echo "SUCCESS: Restart triggered!"
+                    echo "Waiting 90s for new instance to start..."
+                    sleep 90
+                  else
+                    echo "ERROR: Failed to trigger restart (HTTP $HTTP_CODE)"
+                  fi
+
+                  RESTART_TRIGGERED=true
+                fi
+              fi
+            fi
+
+            [ "$ELAPSED" -gt "$DURATION" ] && break
+            sleep 30
+          done
+
+          cleanup
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          cat server.log | tail -100

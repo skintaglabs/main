@@ -1,4 +1,4 @@
-.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app app-remote stop app-docker app-docker-gpu upload-model clean
+.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app app-remote stop app-docker app-docker-gpu clean
 
 # Python interpreter (prefers venv if available)
 PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo python3; fi)
