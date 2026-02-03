@@ -4,6 +4,7 @@ Provides upload endpoint for skin lesion images, runs SigLIP embedding +
 classifier inference, and returns triage assessment results.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.model.embeddings import EmbeddingExtractor
 from src.model.triage import TriageSystem
+from src.utils.model_hub import download_model_from_hf, get_model_config
 
 app = FastAPI(title="SkinTag", description="AI-powered skin lesion triage screening tool")
 
@@ -43,6 +45,7 @@ _state = {
 async def load_models():
     """Load models and config on server startup.
 
+    Downloads models from Hugging Face Hub if enabled, otherwise loads from local cache.
     Prefers fine-tuned end-to-end model if available (better accuracy),
     falls back to embedding extractor + classifier head.
     """
@@ -52,44 +55,86 @@ async def load_models():
 
     cache_dir = PROJECT_ROOT / "results" / "cache"
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    use_hf = os.getenv("USE_HF_MODELS", "false").lower() in ("true", "1", "yes")
 
-    # Try loading fine-tuned end-to-end model first
-    e2e_dir = cache_dir / "finetuned_model"
-    if (e2e_dir / "config.json").exists():
+    # Download from Hugging Face if enabled
+    if use_hf:
+        print("Downloading models from Hugging Face Hub...")
         try:
-            from src.model.deep_classifier import EndToEndClassifier
-            _state["e2e_model"] = EndToEndClassifier.load_for_inference(str(e2e_dir), device=device)
-            _state["inference_mode"] = "e2e"
-            print(f"Loaded fine-tuned end-to-end model from {e2e_dir}")
+            model_config = get_model_config()
+            repo_id = model_config["repo_id"]
+
+            # Download classifier
+            classifier_path = download_model_from_hf(
+                repo_id=repo_id,
+                filename=model_config["classifier_filename"],
+                cache_subdir="skintag"
+            )
+            with open(classifier_path, "rb") as f:
+                _state["classifier"] = pickle.load(f)
+            print(f"✓ Loaded classifier from HF: {classifier_path.name}")
+
+            # Download condition classifier
+            try:
+                cond_path = download_model_from_hf(
+                    repo_id=repo_id,
+                    filename=model_config["condition_classifier_filename"],
+                    cache_subdir="skintag"
+                )
+                with open(cond_path, "rb") as f:
+                    _state["condition_classifier"] = pickle.load(f)
+                print(f"✓ Loaded condition classifier from HF: {cond_path.name}")
+            except Exception as e:
+                print(f"Condition classifier not available on HF: {e}")
+
+            _state["extractor"] = EmbeddingExtractor(device=device)
+            _state["inference_mode"] = "embedding+head"
+            print(f"✓ Models loaded from Hugging Face (device={device})")
+
         except Exception as e:
-            print(f"Failed to load e2e model: {e}, falling back to embedding+head")
+            print(f"Failed to load from Hugging Face: {e}")
+            print("Falling back to local cache...")
+            use_hf = False
 
-    # Fall back to embedding extractor + pickled classifier
-    if _state["inference_mode"] is None:
-        for model_name in ["classifier_deep_mlp.pkl", "classifier_logistic_regression.pkl",
-                            "classifier_deep.pkl", "classifier_logistic.pkl", "classifier.pkl"]:
-            model_path = cache_dir / model_name
-            if model_path.exists():
-                with open(model_path, "rb") as f:
-                    _state["classifier"] = pickle.load(f)
-                print(f"Loaded classifier: {model_name}")
-                break
+    # Load from local cache
+    if not use_hf:
+        # Try loading fine-tuned end-to-end model first
+        e2e_dir = cache_dir / "finetuned_model"
+        if (e2e_dir / "config.json").exists():
+            try:
+                from src.model.deep_classifier import EndToEndClassifier
+                _state["e2e_model"] = EndToEndClassifier.load_for_inference(str(e2e_dir), device=device)
+                _state["inference_mode"] = "e2e"
+                print(f"Loaded fine-tuned end-to-end model from {e2e_dir}")
+            except Exception as e:
+                print(f"Failed to load e2e model: {e}, falling back to embedding+head")
 
-        if _state["classifier"] is None:
-            print("WARNING: No trained classifier found. Run train.py first.")
+        # Fall back to embedding extractor + pickled classifier
+        if _state["inference_mode"] is None:
+            for model_name in ["classifier_deep_mlp.pkl", "classifier_logistic_regression.pkl",
+                                "classifier_deep.pkl", "classifier_logistic.pkl", "classifier.pkl"]:
+                model_path = cache_dir / model_name
+                if model_path.exists():
+                    with open(model_path, "rb") as f:
+                        _state["classifier"] = pickle.load(f)
+                    print(f"Loaded classifier: {model_name}")
+                    break
 
-        _state["extractor"] = EmbeddingExtractor(device=device)
-        _state["inference_mode"] = "embedding+head"
-        print(f"Embedding extractor ready (device={device})")
+            if _state["classifier"] is None:
+                print("WARNING: No trained classifier found. Set USE_HF_MODELS=true or run train.py first.")
 
-    # Load condition classifier (10-class)
-    cond_path = cache_dir / "classifier_condition.pkl"
-    if cond_path.exists():
-        with open(cond_path, "rb") as f:
-            _state["condition_classifier"] = pickle.load(f)
-        print(f"Loaded condition classifier: {cond_path.name}")
-    else:
-        print("No condition classifier found (condition estimation disabled)")
+            _state["extractor"] = EmbeddingExtractor(device=device)
+            _state["inference_mode"] = "embedding+head"
+            print(f"Embedding extractor ready (device={device})")
+
+        # Load condition classifier (10-class)
+        cond_path = cache_dir / "classifier_condition.pkl"
+        if cond_path.exists():
+            with open(cond_path, "rb") as f:
+                _state["condition_classifier"] = pickle.load(f)
+            print(f"Loaded condition classifier: {cond_path.name}")
+        else:
+            print("No condition classifier found (condition estimation disabled)")
 
     # Load triage system
     triage_config = _state["config"].get("triage", {})
