@@ -21,6 +21,12 @@ Get from:
 
 Then: Actions → Deploy Inference Server → Run workflow
 
+## URL
+
+Tunnel URL: `https://<tunnel-id>.cfargotunnel.com`
+
+The setup script will output the full URL. Configure your frontend to use this as the API endpoint.
+
 ## Features
 
 - Free (2000 min/month)

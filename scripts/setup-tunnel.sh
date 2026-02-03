@@ -153,14 +153,27 @@ if [ -n "$HF_TOKEN" ]; then
     echo "$HF_TOKEN" | gh secret set HF_TOKEN --repo="$REPO"
 fi
 
+# Get tunnel info to show URL
+echo ""
+echo "Getting tunnel URL..."
+TUNNEL_INFO=$(curl -s -X GET \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID" \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+
+TUNNEL_DOMAIN=$(echo "$TUNNEL_INFO" | jq -r '.result.id + ".cfargotunnel.com"')
+
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Tunnel: $TUNNEL_NAME (ID: $TUNNEL_ID)"
+echo "URL: https://$TUNNEL_DOMAIN"
 echo "GitHub secrets configured"
+echo ""
+echo "Configure your frontend to use this API URL:"
+echo "  https://$TUNNEL_DOMAIN"
 echo ""
 echo "Next steps:"
 echo "  1. Go to Actions → Deploy Inference Server"
 echo "  2. Run workflow"
-echo "  3. Check logs for tunnel URL"
+echo "  3. Frontend will be available at the URL above"
 echo ""
