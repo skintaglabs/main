@@ -18,6 +18,7 @@ import { ResultsContainer } from '@/components/results/ResultsContainer'
 import { SkeletonResults } from '@/components/results/SkeletonResults'
 import { Results } from '@/components/results/Results'
 import { HistoryView } from '@/components/history/HistoryView'
+import { ApiHealthBanner } from '@/components/layout/ApiHealthBanner'
 
 function AppContent() {
   const { state, setSelectedFile, clearImage, setShowResults, setShowCropper } = useAppContext()
@@ -97,6 +98,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col pb-16">
+      <ApiHealthBanner />
       <OnboardingModal />
 
       <input

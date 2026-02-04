@@ -40,7 +40,14 @@ export function useAnalysis() {
           }
         })
       } else {
-        toast.error('Unable to analyze image')
+        toast.error('Unable to connect to API server', {
+          description: 'The server may have restarted. Try refreshing the page.',
+          duration: 5000,
+          action: {
+            label: 'Refresh',
+            onClick: () => window.location.reload()
+          }
+        })
       }
       return null
     } finally {

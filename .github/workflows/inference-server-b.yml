@@ -1,21 +1,9 @@
-name: Inference Server
+name: Inference Server B
 
 on:
-  workflow_dispatch:
-    inputs:
-      duration_hours:
-        description: 'Duration (max 5.5 hours)'
-        required: false
-        default: '5'
-        type: string
-      auto_restart:
-        description: 'Auto-restart before timeout'
-        required: false
-        default: true
-        type: boolean
-
-  repository_dispatch:
-    types: [restart-inference]
+  workflow_run:
+    workflows: ["Inference Server A"]
+    types: [completed]
 
 jobs:
   deploy:
@@ -42,17 +30,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          API_RESPONSE=$(curl -s \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/inference-server.yml/runs?status=in_progress")
+          # Check both A and B workflows for any running instances
+          for workflow in inference-server-a.yml inference-server-b.yml; do
+            API_RESPONSE=$(curl -s \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$workflow/runs?status=in_progress")
 
-          PREVIOUS_RUN_ID=$(echo "$API_RESPONSE" | jq -r ".workflow_runs[] | select(.id < ${{ github.run_id }}) | .id" | head -1)
+            PREVIOUS_RUN_ID=$(echo "$API_RESPONSE" | jq -r ".workflow_runs[] | select(.id < ${{ github.run_id }}) | .id" | head -1)
 
-          if [ -n "$PREVIOUS_RUN_ID" ] && [ "$PREVIOUS_RUN_ID" != "null" ]; then
-            echo "previous_run_id=$PREVIOUS_RUN_ID" >> $GITHUB_OUTPUT
-            echo "Found previous run: $PREVIOUS_RUN_ID"
-          else
+            if [ -n "$PREVIOUS_RUN_ID" ] && [ "$PREVIOUS_RUN_ID" != "null" ]; then
+              echo "previous_run_id=$PREVIOUS_RUN_ID" >> $GITHUB_OUTPUT
+              echo "Found previous run: $PREVIOUS_RUN_ID"
+              break
+            fi
+          done
+
+          if [ -z "$PREVIOUS_RUN_ID" ] || [ "$PREVIOUS_RUN_ID" = "null" ]; then
             echo "previous_run_id=" >> $GITHUB_OUTPUT
             echo "No previous run found"
           fi
@@ -99,7 +93,6 @@ jobs:
           nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
           echo $! > server.pid
 
-          # Wait for server to be ready
           echo "Waiting for inference server..."
           for i in {1..60}; do
             if curl -sf http://localhost:8000/api/health | grep -q "ok"; then
@@ -112,15 +105,12 @@ jobs:
 
       - name: Start tunnel
         run: |
-          # Use quick tunnel (no setup required, gets *.trycloudflare.com domain)
           ./cloudflared tunnel --url http://localhost:8000 2>&1 | tee tunnel.log &
           TUNNEL_PID=$!
 
-          # Wait for tunnel URL to appear in logs (can take 30-60s)
           echo "Waiting for tunnel URL..."
           TUNNEL_URL=""
           for i in {1..60}; do
-            # Check both tunnel.log and try to grep from it
             TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log 2>/dev/null | head -1)
 
             if [ -n "$TUNNEL_URL" ]; then
@@ -179,9 +169,6 @@ jobs:
           cat server.log | tail -20
 
       - name: Monitor
-        env:
-          APP_ID: ${{ secrets.APP_ID }}
-          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
           cleanup() {
             echo "Cleaning up..."
@@ -194,46 +181,12 @@ jobs:
           }
           trap cleanup SIGTERM SIGINT
 
-          # Function to generate fresh GitHub App token
-          generate_app_token() {
-            NOW=$(date +%s)
-            IAT=$((NOW - 60))
-            EXP=$((NOW + 600))
-
-            HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-            PAYLOAD=$(echo -n "{\"iat\":${IAT},\"exp\":${EXP},\"iss\":\"${APP_ID}\"}" | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-
-            SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign <(echo "$APP_PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-            JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
-
-            INSTALLATION_ID=$(curl -s \
-              -H "Authorization: Bearer $JWT" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/installation" | jq -r '.id')
-
-            if [ -z "$INSTALLATION_ID" ] || [ "$INSTALLATION_ID" = "null" ]; then
-              echo ""
-              return 1
-            fi
-
-            TOKEN=$(curl -sX POST \
-              -H "Authorization: Bearer $JWT" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" | jq -r '.token')
-
-            echo "$TOKEN"
-          }
-
-          DURATION_HOURS="${{ github.event.client_payload.duration_hours || github.event.inputs.duration_hours || '5' }}"
+          DURATION_HOURS="5"
           DURATION=$(awk "BEGIN {printf \"%.0f\", $DURATION_HOURS * 3600}")
           RESTART_THRESHOLD=$((DURATION - 360))
           START_TIME=$(date +%s)
           RESTART_TRIGGERED=false
-
-          AUTO_RESTART="${{ github.event.client_payload.auto_restart || github.event.inputs.auto_restart }}"
-          if [ -z "$AUTO_RESTART" ]; then
-            AUTO_RESTART="true"
-          fi
+          AUTO_RESTART="true"
 
           echo "Duration: ${DURATION_HOURS}h | Auto-restart: $AUTO_RESTART"
 
@@ -261,34 +214,11 @@ jobs:
               if [ "$AUTO_RESTART" = "true" ]; then
                 echo ""
                 echo "=========================================="
-                echo "Generating fresh token and triggering restart..."
+                echo "Handoff time reached. Completing workflow to trigger Server A..."
                 echo "=========================================="
-
-                APP_TOKEN=$(generate_app_token)
-                if [ -z "$APP_TOKEN" ]; then
-                  echo "ERROR: Failed to generate app token"
-                  RESTART_TRIGGERED=true
-                else
-                  RESPONSE=$(curl -sX POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "Authorization: Bearer $APP_TOKEN" \
-                    -H "X-GitHub-Api-Version: 2022-11-28" \
-                    https://api.github.com/repos/${{ github.repository }}/dispatches \
-                    -d "{\"event_type\":\"restart-inference\",\"client_payload\":{\"duration_hours\":\"$DURATION_HOURS\",\"auto_restart\":$([ \"$AUTO_RESTART\" = \"true\" ] && echo \"true\" || echo \"false\")}}" \
-                    -w "\nHTTP_STATUS:%{http_code}" 2>&1)
-
-                  HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
-
-                  if [ "$HTTP_CODE" = "204" ]; then
-                    echo "SUCCESS: Restart triggered!"
-                    echo "Waiting 90s for new instance to start..."
-                    sleep 90
-                  else
-                    echo "ERROR: Failed to trigger restart (HTTP $HTTP_CODE)"
-                  fi
-
-                  RESTART_TRIGGERED=true
-                fi
+                RESTART_TRIGGERED=true
+                sleep 90
+                break
               fi
             fi
 
