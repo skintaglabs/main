@@ -29,6 +29,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Fetch git notes
+        run: |
+          git fetch origin refs/notes/commits:refs/notes/commits || true
+          API_URL=$(git notes show HEAD 2>/dev/null || echo "")
+          echo "API_URL_FROM_NOTES=$API_URL" >> $GITHUB_ENV
+          if [ -n "$API_URL" ]; then
+            echo "✓ Found API URL in notes: $API_URL"
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -43,7 +52,7 @@ jobs:
       - name: Build
         working-directory: webapp-react
         env:
-          VITE_API_URL: ${{ github.event.inputs.api_url || secrets.API_URL || '' }}
+          VITE_API_URL: ${{ github.event.inputs.api_url || env.API_URL_FROM_NOTES || secrets.API_URL || '' }}
         run: npm run build
 
       - name: Setup Pages

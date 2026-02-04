@@ -133,6 +133,15 @@ jobs:
           echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
           echo "✓ Tunnel URL: $TUNNEL_URL"
 
+      - name: Store API URL in git notes
+        if: env.TUNNEL_URL != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git notes add -f -m "${{ env.TUNNEL_URL }}" HEAD
+          git push origin refs/notes/commits
+          echo "✓ Stored URL in git notes"
+
       - name: Trigger frontend deployment with API URL
         if: env.TUNNEL_URL != ''
         run: |
@@ -167,6 +176,8 @@ jobs:
           cleanup() {
             echo "Cleaning up..."
             kill $(cat server.pid) 2>/dev/null || true
+            git notes remove HEAD 2>/dev/null || true
+            git push origin refs/notes/commits 2>/dev/null || true
             exit 0
           }
           trap cleanup SIGTERM SIGINT
