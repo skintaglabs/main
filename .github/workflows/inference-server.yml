@@ -133,41 +133,16 @@ jobs:
           echo "✓ Tunnel URL: $TUNNEL_URL"
           echo "✓ Tunnel ID: $TUNNEL_ID"
 
-      - name: Publish API endpoint
+      - name: Trigger frontend deployment with API URL
         if: env.TUNNEL_URL != ''
         run: |
-          # Create API config in .github/ (minimal main branch pollution)
-          mkdir -p .github
-          cat > .github/api-config.json <<EOF
-          {
-            "apiUrl": "${{ env.TUNNEL_URL }}",
-            "status": "online",
-            "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-
-          # Commit to main with [skip ci] (won't trigger deploy-webapp)
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git fetch origin main
-          git checkout main
-          git pull origin main
-
-          mkdir -p .github
-          cat > .github/api-config.json <<EOF
-          {
-            "apiUrl": "${{ env.TUNNEL_URL }}",
-            "status": "online",
-            "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-
-          git add .github/api-config.json
-          if ! git diff --quiet HEAD -- .github/api-config.json 2>/dev/null; then
-            git commit -m "Update API endpoint [skip ci]"
-            git push origin main
-          fi
+          # Trigger deploy-webapp workflow with the tunnel URL
+          # No git commits - URL passed as workflow input
+          gh workflow run deploy-webapp.yml \
+            --field api_url="${{ env.TUNNEL_URL }}" \
+            --field status="online"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cancel previous workflow
         if: steps.find_previous.outputs.previous_run_id != ''
