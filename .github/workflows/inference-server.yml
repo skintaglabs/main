@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 350
     permissions:
       actions: write
-      contents: read
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -52,12 +52,21 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('requirements-inference.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          uv pip install --system -r requirements-inference.txt
 
       - name: Download models from Hugging Face
         env:
@@ -96,8 +105,44 @@ jobs:
         env:
           TUNNEL_TOKEN: ${{ secrets.SKINTAG_TUNNEL_TOKEN }}
         run: |
-          ./cloudflared tunnel run --token "$TUNNEL_TOKEN" &
-          sleep 5
+          ./cloudflared tunnel run --token "$TUNNEL_TOKEN" > tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+
+          # Wait for tunnel to be ready
+          echo "Waiting for tunnel to start..."
+          for i in {1..30}; do
+            if grep -q "Registered tunnel connection" tunnel.log 2>/dev/null; then
+              echo "✓ Tunnel connected!"
+              break
+            fi
+            sleep 2
+          done
+
+          # Extract tunnel ID from logs and construct URL
+          TUNNEL_ID=$(grep -oP 'tunnelID=\K[a-f0-9-]+' tunnel.log | head -1)
+
+          if [ -z "$TUNNEL_ID" ]; then
+            echo "::error::Could not extract tunnel ID from logs"
+            echo "Tunnel logs:"
+            cat tunnel.log
+            exit 1
+          fi
+
+          TUNNEL_URL="https://${TUNNEL_ID}.cfargotunnel.com"
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+          echo "✓ Tunnel URL: $TUNNEL_URL"
+          echo "✓ Tunnel ID: $TUNNEL_ID"
+
+      - name: Trigger frontend deployment with API URL
+        if: env.TUNNEL_URL != ''
+        run: |
+          # Trigger deploy-webapp workflow with the tunnel URL
+          # No git commits - URL passed as workflow input
+          gh workflow run deploy-webapp.yml \
+            --field api_url="${{ env.TUNNEL_URL }}" \
+            --field status="online"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cancel previous workflow
         if: steps.find_previous.outputs.previous_run_id != ''

@@ -8,6 +8,16 @@ on:
       - 'public/**'
       - '.github/workflows/deploy-webapp.yml'
   workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API endpoint URL'
+        required: false
+        type: string
+      status:
+        description: 'API status'
+        required: false
+        type: string
+        default: 'offline'
 
 permissions:
   contents: read
@@ -45,14 +55,30 @@ jobs:
       - name: Prepare deployment structure
         run: |
           mkdir -p dist
+
+          # Create API config from workflow input (no git commits!)
+          API_URL="${{ github.event.inputs.api_url || '' }}"
+          STATUS="${{ github.event.inputs.status || 'offline' }}"
+
+          cat > dist/api-config.json <<EOF
+          {
+            "apiUrl": "${API_URL}",
+            "status": "${STATUS}",
+            "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
           # Copy landing page
           cp public/index.html dist/
           # Copy classic version
           cp -r public/classic dist/
           # Copy Next.js build to app/
           cp -r app/skintag-webapp/out dist/app
-          # Configure API URL for classic version
-          sed -i "s|API_URL_PLACEHOLDER|${{ secrets.API_URL }}|g" dist/classic/config.js
+
+          # Configure API URL for classic version (fallback)
+          if [ -f dist/classic/config.js ]; then
+            sed -i "s|API_URL_PLACEHOLDER|${API_URL:-${{ secrets.API_URL }}}|g" dist/classic/config.js
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
