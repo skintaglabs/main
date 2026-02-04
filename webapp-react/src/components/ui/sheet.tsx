@@ -32,16 +32,16 @@ const SheetContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-0 right-0 bottom-0 z-50 flex flex-col gap-4 bg-[var(--color-surface)] p-6 shadow-[var(--shadow-lg)] rounded-t-[var(--radius-lg)] h-[85vh] data-[state=open]:animate-slideUp',
+        'fixed left-0 right-0 bottom-0 z-50 flex flex-col bg-[var(--color-surface)] p-[var(--space-3)] shadow-[var(--shadow-lg)] rounded-t-[var(--radius-lg)] max-h-[85vh] data-[state=open]:animate-slideUp',
         className
       )}
       {...props}
     >
-      {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-        <X className="h-4 w-4" />
+      <DialogPrimitive.Close className="absolute right-[var(--space-2)] top-[var(--space-2)] w-8 h-8 rounded-full hover:bg-[var(--color-surface-alt)] flex items-center justify-center transition-colors">
+        <X className="h-4 w-4 text-[var(--color-text-muted)]" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
+      {children}
     </DialogPrimitive.Content>
   </SheetPortal>
 ))

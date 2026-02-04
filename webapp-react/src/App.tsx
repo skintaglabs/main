@@ -116,7 +116,7 @@ function AppContent() {
 
         <main className="pb-8">
           {currentView === 'history' ? (
-            <HistoryView onClose={() => setCurrentView('upload')} />
+            <HistoryView />
           ) : (
             <>
               {!state.selectedFile && (

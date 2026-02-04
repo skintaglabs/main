@@ -5,11 +5,7 @@ import { HistoryList } from './HistoryList'
 import type { HistoryEntry } from '@/hooks/useAnalysisHistory'
 import { useState } from 'react'
 
-interface HistoryViewProps {
-  onClose: () => void
-}
-
-export function HistoryView({ onClose }: HistoryViewProps) {
+export function HistoryView() {
   const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
 
   if (selectedEntry) {
@@ -48,22 +44,6 @@ export function HistoryView({ onClose }: HistoryViewProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Button
-          onClick={onClose}
-          variant="ghost"
-          size="icon"
-          className="rounded-full"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <h2 className="text-[24px] font-semibold" style={{ fontFamily: "'Instrument Serif', serif" }}>
-          Back to Upload
-        </h2>
-      </div>
-
-      <HistoryList onViewEntry={setSelectedEntry} />
-    </div>
+    <HistoryList onViewEntry={setSelectedEntry} />
   )
 }
