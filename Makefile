@@ -1,4 +1,4 @@
-.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app app-remote stop app-docker app-docker-gpu clean
+.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app webapp webapp-build stop app-docker app-docker-gpu clean
 
 # Python interpreter (prefers venv if available)
 PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo python3; fi)
@@ -30,16 +30,14 @@ help:
 	@echo "  evaluate-cross-domain  Run cross-domain generalization experiment"
 	@echo ""
 	@echo "Application:"
-	@echo "  app                Run web app locally"
-	@echo "  app-remote         Run web app + ngrok tunnel (HTTPS)"
-	@echo "  stop               Stop server and ngrok"
+	@echo "  app                Run API server locally (default: port 8000)"
+	@echo "  webapp             Run React frontend dev server (configure API via .env)"
+	@echo "  webapp-build       Build React frontend for production"
+	@echo "  stop               Stop server"
 	@echo "  app-docker         Build and run web app in Docker (CPU)"
 	@echo "  app-docker-gpu     Build and run web app in Docker (GPU)"
 	@echo ""
-	@echo "Model Management:"
-	@echo "  upload-finetuned   Upload fine-tuned SigLIP to GitHub release (TAG=v1.0.0)"
-	@echo "  upload-model       Upload single model file to GitHub release (MODEL=path TAG=v1.0.0)"
-	@echo ""
+	@echo "Cleanup:"
 	@echo "  clean              Remove cached embeddings and models"
 
 venv:
@@ -114,12 +112,16 @@ evaluate-cross-domain:
 app:
 	$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT) --reload
 
-app-remote:
-	@$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT) --reload & sleep 2 && ngrok http $(PORT)
+# Set API URL via: webapp-react/.env with VITE_API_URL=http://localhost:8000
+# Or URL param: ?api=http://localhost:8000
+webapp:
+	cd webapp-react && npm install && npm run dev
+
+webapp-build:
+	cd webapp-react && npm install && npm run build
 
 stop:
 	@pkill -f "uvicorn app.main:app" 2>/dev/null || true
-	@pkill -f ngrok 2>/dev/null || true
 	@lsof -ti:$(PORT) | xargs kill -9 2>/dev/null || true
 	@echo "Stopped"
 
@@ -133,36 +135,3 @@ app-docker-gpu:
 
 clean:
 	rm -rf results/cache/*
-
-# Model management - upload single file
-upload-model:
-ifndef MODEL
-	$(error MODEL is required. Usage: make upload-model MODEL=path/to/model.pt TAG=v1.0.0)
-endif
-ifndef TAG
-	$(error TAG is required. Usage: make upload-model MODEL=path/to/model.pt TAG=v1.0.0)
-endif
-	@test -f "$(MODEL)" || (echo "Error: Model file '$(MODEL)' not found" && exit 1)
-	@echo "Uploading $(MODEL) to release $(TAG)..."
-	@if gh release view $(TAG) >/dev/null 2>&1; then \
-		gh release upload $(TAG) $(MODEL) --clobber; \
-	else \
-		gh release create $(TAG) $(MODEL) --title "Model $(TAG)" --notes "Model checkpoint $(TAG)"; \
-	fi
-	@echo "Model uploaded successfully"
-
-# Upload fine-tuned SigLIP model (all 3 files)
-upload-finetuned:
-ifndef TAG
-	$(error TAG is required. Usage: make upload-finetuned TAG=v1.0.0)
-endif
-	@test -d "models/finetuned_siglip" || (echo "Error: models/finetuned_siglip/ not found" && exit 1)
-	@echo "Uploading fine-tuned SigLIP to release $(TAG)..."
-	@if gh release view $(TAG) >/dev/null 2>&1; then \
-		gh release upload $(TAG) models/finetuned_siglip/model_state.pt models/finetuned_siglip/head_state.pt models/finetuned_siglip/config.json --clobber; \
-	else \
-		gh release create $(TAG) models/finetuned_siglip/model_state.pt models/finetuned_siglip/head_state.pt models/finetuned_siglip/config.json \
-			--title "Fine-tuned SigLIP $(TAG)" \
-			--notes "Fine-tuned SigLIP for skin lesion triage. Test acc: 92.3%, F1 macro: 0.887, F1 malignant: 0.824. Trained on 47k images (5 datasets)."; \
-	fi
-	@echo "Fine-tuned model uploaded successfully"
