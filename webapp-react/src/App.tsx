@@ -5,6 +5,7 @@ import { useAnalysis } from '@/hooks/useAnalysis'
 import { Header } from '@/components/layout/Header'
 import { Footer } from '@/components/layout/Footer'
 import { DisclaimerBanner } from '@/components/layout/DisclaimerBanner'
+import { OnboardingModal } from '@/components/layout/OnboardingModal'
 import { UploadZone } from '@/components/upload/UploadZone'
 import { CameraButton } from '@/components/upload/CameraButton'
 import { PreviewCard } from '@/components/upload/PreviewCard'
@@ -41,6 +42,8 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <OnboardingModal />
+
       <div className="flex-1 w-full max-w-3xl mx-auto px-4">
         <Header />
 
