@@ -141,10 +141,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin refs/notes/commits:refs/notes/commits || true
-          FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-          git notes add -f -m "${{ env.TUNNEL_URL }}" $FIRST_COMMIT
+          git notes add -f -m "${{ env.TUNNEL_URL }}" 1792ea1c2748762f5964bbb6dc7c745514e930c9
           git push origin refs/notes/commits
-          echo "✓ Stored URL in git notes on initial commit: $FIRST_COMMIT"
+          echo "✓ Stored API URL in git notes"
 
       - name: Trigger frontend deployment with API URL
         if: env.TUNNEL_URL != ''
@@ -181,8 +180,7 @@ jobs:
             echo "Cleaning up..."
             kill $(cat server.pid) 2>/dev/null || true
             git fetch origin refs/notes/commits:refs/notes/commits 2>/dev/null || true
-            FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-            git notes remove $FIRST_COMMIT 2>/dev/null || true
+            git notes remove 1792ea1c2748762f5964bbb6dc7c745514e930c9 2>/dev/null || true
             git push origin refs/notes/commits 2>/dev/null || true
             exit 0
           }
