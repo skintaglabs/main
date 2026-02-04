@@ -92,13 +92,15 @@
   /* Frosted glass effect for cards and surfaces */
   [class*="bg-[var(--color-surface)]"]:not(button):not(.no-glass),
   [style*="background-color: var(--color-surface)"] {
-    background-color: color-mix(in srgb, var(--color-surface) 92%, transparent) !important;
-    backdrop-filter: blur(12px);
+    background-color: color-mix(in srgb, var(--color-surface) 75%, transparent) !important;
+    backdrop-filter: blur(16px) saturate(1.8);
+    -webkit-backdrop-filter: blur(16px) saturate(1.8);
   }
 
   [class*="bg-[var(--color-surface-alt)]"]:not(button) {
-    background-color: color-mix(in srgb, var(--color-surface-alt) 88%, transparent) !important;
-    backdrop-filter: blur(8px);
+    background-color: color-mix(in srgb, var(--color-surface-alt) 70%, transparent) !important;
+    backdrop-filter: blur(12px) saturate(1.5);
+    -webkit-backdrop-filter: blur(12px) saturate(1.5);
   }
 
   body::before {
