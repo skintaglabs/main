@@ -6,6 +6,7 @@ import { ConditionCard } from './ConditionCard'
 import { BinaryBarsCard } from './BinaryBarsCard'
 import { CTAActions } from './CTAActions'
 import { DisclaimerBanner } from '@/components/layout/DisclaimerBanner'
+import { useAppContext } from '@/contexts/AppContext'
 
 interface ResultsProps {
   results: AnalysisResult
@@ -13,9 +14,21 @@ interface ResultsProps {
 }
 
 export function Results({ results, onAnalyzeAnother }: ResultsProps) {
+  const { state } = useAppContext()
+
   return (
     <div className="space-y-6">
       <div id="results-capture" className="space-y-6">
+        {state.previewUrl && (
+          <div className="flex justify-center">
+            <img
+              src={state.previewUrl}
+              alt="Analyzed image"
+              className="w-48 h-48 object-cover rounded-lg border-2 border-[var(--color-border)]"
+            />
+          </div>
+        )}
+
         <TierCard
           tier={results.urgency_tier}
           confidence={results.confidence}
