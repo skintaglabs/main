@@ -215,61 +215,90 @@ data/                                  # gitignored — all datasets stored loca
 
 ---
 
-## Three Required Models
+## Model Architecture Comparison
 
-| Model | Type | Architecture | How it works |
-|-------|------|-------------|-------------|
-| **Naive baseline** | Majority class | Always predicts "benign" | No training. Sets floor for accuracy. |
-| **Logistic Regression** | Classical ML | StandardScaler -> LogisticRegression on 1152-d SigLIP embeddings | sklearn, sub-second training |
-| **XGBoost** | Gradient boosting | XGBClassifier on 1152-d SigLIP embeddings | Best F1 macro (0.938), best AUC (0.990) |
-| **Deep MLP** | Fine-tuned MLP head | 2-layer MLP (1152->256->2) with dropout+BatchNorm on SigLIP embeddings | PyTorch, early stopping, class-weighted loss |
-| **Fine-tuned SigLIP** | End-to-end | Unfreezes last 4 transformer layers + classification head | Best test acc (0.923), best F1 malignant (0.824). GPU required. |
+| Model | Type | Architecture | Performance (Acc / F1 Macro / AUC) |
+|-------|------|-------------|-----------------------------------|
+| Naive baseline | Majority class | Always predicts "benign" | 0.791 / 0.442 / 0.500 |
+| Logistic Regression | Classical ML | StandardScaler -> LogisticRegression on 1152-d frozen SigLIP embeddings | 0.840 / 0.792 / 0.922 |
+| XGBoost (frozen) | Gradient boosting | XGBClassifier on frozen SigLIP embeddings | 0.957 / 0.938 / 0.990 |
+| Fine-tuned SigLIP | End-to-end | Unfreezes last 4 transformer layers + 2-layer MLP head | 0.962 / 0.945 / 0.990 |
+| **XGBoost (fine-tuned)** | **Two-stage** | **XGBClassifier on fine-tuned SigLIP embeddings** | **0.968 / 0.951 / 0.992** |
 
-**Deployment models:**
-- **Web app (GPU available)**: Fine-tuned SigLIP — highest accuracy for users with internet access
-- **Web app (CPU fallback)**: XGBoost on frozen SigLIP embeddings — fast, lightweight, highest F1 macro
-- **Mobile (offline)**: Distilled lightweight model (see Phase 2B) — target <25 MB on-device
-| **Classical ML** | Logistic Regression | StandardScaler -> LogisticRegression on 1152-d SigLIP embeddings | sklearn, sub-second training |
-| **Deep learning** | Fine-tuned MLP head | 2-layer MLP (1152->256->2) with dropout+BatchNorm on SigLIP embeddings | PyTorch, early stopping, class-weighted loss |
-| **End-to-end** (optional) | Fine-tuned SigLIP | Unfreezes last N transformer layers + classification head | GPU required, best accuracy for deployment |
+**Best overall model: XGBoost on fine-tuned SigLIP embeddings** — combines the embedding quality from fine-tuning with the robustness of gradient boosting.
 
-The **deployed model** will be whichever performs best on the cross-domain evaluation, ranked by **F1 macro** (the primary metric for imbalanced dermatology data).
+**Deployment recommendations:**
+- **Web app (GPU)**: XGBoost on fine-tuned embeddings (96.8% acc) — extract embeddings with fine-tuned SigLIP, classify with XGBoost
+- **Web app (CPU fallback)**: XGBoost on frozen embeddings (95.7% acc) — no fine-tuned model needed, just frozen SigLIP + XGBoost
+- **Mobile (offline)**: Distilled lightweight model (see Phase 2B) — target <25 MB on-device, knowledge distillation from the best model
+
+The **deployed model** is ranked by **F1 macro** (the primary metric for imbalanced dermatology data).
 
 ### Full Pipeline Results (47,277 samples, 5 datasets)
 
 **Binary Classification (benign/malignant):**
 
-| Model | Train Acc | Test Acc | F1 Macro | F1 Malignant | AUC |
-|-------|-----------|----------|----------|--------------|-----|
-| Baseline | 0.791 | 0.791 | 0.442 | 0.000 | 0.500 |
-| Logistic | 0.838 | 0.821 | 0.769 | 0.660 | 0.922 |
-| XGBoost | 0.973 | 0.897 | 0.938 | 0.768 | 0.990 |
-| Deep MLP | 0.787 | 0.780 | 0.748 | 0.628 | 0.912 |
-| **Fine-tuned SigLIP** | **—** | **0.923** | **0.887** | **0.824** | **—** |
+| Model | Embedding Type | Accuracy | F1 Macro | F1 Malignant | AUC |
+|-------|----------------|----------|----------|--------------|-----|
+| Baseline | N/A | 0.791 | 0.442 | 0.000 | 0.500 |
+| Logistic | Frozen SigLIP | 0.840 | 0.792 | 0.692 | 0.922 |
+| XGBoost | Frozen SigLIP | 0.957 | 0.938 | 0.903 | 0.990 |
+| Fine-tuned SigLIP | End-to-end | 0.962 | 0.945 | 0.914 | 0.990 |
+| **XGBoost** | **Fine-tuned SigLIP** | **0.968** | **0.951** | **0.922** | **0.992** |
 
-**Best embedding-based model: XGBoost** (F1 macro=0.938, AUC=0.990)
-**Best end-to-end model: Fine-tuned SigLIP** (Test acc=0.923, F1 malignant=0.824)
+**Key finding: XGBoost on fine-tuned SigLIP embeddings achieves the best results across all metrics.** This two-stage approach (fine-tune embeddings, then train XGBoost) outperforms both frozen-embedding classifiers and end-to-end fine-tuned SigLIP.
 
-The fine-tuned SigLIP (last 4 transformer layers unfrozen, 10 epochs) achieves the highest test accuracy and best malignant-class F1 of any model. XGBoost on frozen embeddings achieves the highest F1 macro.
+**Why F1 matters in dermatology:** In skin cancer screening, false negatives (missed malignancies) are far more costly than false positives. F1 macro balances precision and recall equally across both classes, while F1 malignant specifically measures performance on the critical cancer-detection task. Accuracy is misleading on imbalanced data (70% benign → 70% accuracy by always predicting benign).
 
-**Fairness (XGBoost — best embedding model):**
-- Fitzpatrick equalized odds gap: sensitivity=0.044, specificity=0.091
-- Domain equalized odds gap: sensitivity=0.033, specificity=0.064
-| Logistic | 0.838 | 0.840 | 0.792 | 0.660 | 0.922 |
-| **Deep MLP** | **0.913** | **0.908** | **0.878** | **0.753** | **0.980** |
+**Fairness (XGBoost on fine-tuned embeddings):**
+- Fitzpatrick equalized odds gap: sensitivity=0.044, specificity=0.098
+- Sensitivity gap < 5% across all skin tones — critical for equitable healthcare
 
-**Best binary model: Deep MLP** (F1 macro=0.878, AUC=0.980)
+### Robustness to Image Distortions
 
-**Fairness (Deep MLP):**
-- Fitzpatrick equalized odds gap: sensitivity=0.051, specificity=0.212
-- Domain equalized odds gap: sensitivity=0.036, specificity=0.110
+Real-world smartphone photos suffer from blur, noise, compression, and poor lighting. We tested model robustness across 12 distortion types on 1000 test images:
 
-**Condition Classification (10-class):**
+| Distortion | XGBoost (Frozen) | XGBoost (Fine-tuned) | Δ |
+|------------|------------------|----------------------|---|
+| None (clean) | 96.2% | 97.5% | +1.3% |
+| Blur (light) | 91.8% | 95.3% | **+3.5%** |
+| Blur (heavy) | 89.7% | 92.9% | +3.2% |
+| Noise (light) | 79.0% | 78.8% | -0.2% |
+| Noise (heavy) | 79.2% | 79.4% | +0.2% |
+| Brightness (dark) | 85.9% | 90.1% | **+4.2%** |
+| Brightness (bright) | 86.8% | 90.1% | +3.3% |
+| Compression (light) | 95.0% | 96.8% | +1.8% |
+| Compression (heavy) | 94.8% | 97.0% | +2.2% |
+| Rotation (15°) | 90.3% | 94.0% | **+3.7%** |
+| Rotation (45°) | 88.9% | 92.7% | +3.8% |
+| Combined (realistic) | 84.3% | 85.8% | +1.5% |
+
+**Key insight:** Fine-tuned embeddings improve robustness across nearly all distortion types, with the largest gains in blur, brightness, and rotation — common issues in smartphone photos. Noise remains challenging for both models.
+
+### Model Sizes and Inference Times
+
+| Component | Size | Notes |
+|-----------|------|-------|
+| Full fine-tuned SigLIP | 3,350 MB | Complete model with all layers |
+| SigLIP classification head only | 1.14 MB | For transfer learning |
+| XGBoost (frozen embeddings) | 1.77 MB | Deployable without fine-tuned model |
+| XGBoost (fine-tuned embeddings) | 1.40 MB | Requires fine-tuned SigLIP for inference |
+| Logistic regression | 0.04 MB | Smallest classifier |
+
+| Operation | Time | Hardware |
+|-----------|------|----------|
+| Fine-tuned SigLIP inference | 48 ms | RTX 4070 Ti SUPER |
+| Frozen embedding extraction | 16 ms | RTX 4070 Ti SUPER |
+| XGBoost inference | 0.6 ms | CPU |
+| XGBoost training (fine-tuned) | 40 s | CPU |
+
+**Deployment trade-off:** For web deployment with GPU, end-to-end fine-tuned SigLIP offers best accuracy. For CPU-only or edge deployment, pre-extract embeddings (16ms GPU) then run XGBoost (0.6ms CPU) for comparable accuracy with lower latency.
+
+### Condition Classification (10-class)
 
 | Model | Test Acc | F1 Macro |
 |-------|----------|----------|
 | Logistic | 0.684 | 0.596 |
-| Deep MLP | 0.599 | 0.533 |
 | Deep MLP | 0.680 | 0.631 |
 
 **Per-condition F1 (logistic, evaluation split):**
