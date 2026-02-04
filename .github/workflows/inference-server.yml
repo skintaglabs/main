@@ -1,4 +1,4 @@
-name: Deploy Inference Server
+name: Inference Server
 
 on:
   workflow_dispatch:
@@ -102,36 +102,36 @@ jobs:
           done
 
       - name: Start tunnel
-        env:
-          TUNNEL_TOKEN: ${{ secrets.SKINTAG_TUNNEL_TOKEN }}
         run: |
-          ./cloudflared tunnel run --token "$TUNNEL_TOKEN" > tunnel.log 2>&1 &
+          # Use quick tunnel (no setup required, gets *.trycloudflare.com domain)
+          ./cloudflared tunnel --url http://localhost:8000 2>&1 | tee tunnel.log &
           TUNNEL_PID=$!
 
-          # Wait for tunnel to be ready
-          echo "Waiting for tunnel to start..."
-          for i in {1..30}; do
-            if grep -q "Registered tunnel connection" tunnel.log 2>/dev/null; then
+          # Wait for tunnel URL to appear in logs (can take 30-60s)
+          echo "Waiting for tunnel URL..."
+          TUNNEL_URL=""
+          for i in {1..60}; do
+            # Check both tunnel.log and try to grep from it
+            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log 2>/dev/null | head -1)
+
+            if [ -n "$TUNNEL_URL" ]; then
               echo "✓ Tunnel connected!"
               break
             fi
-            sleep 2
+
+            echo "Attempt $i/60 - waiting..."
+            sleep 3
           done
 
-          # Extract tunnel ID from logs and construct URL
-          TUNNEL_ID=$(grep -oP 'tunnelID=\K[a-f0-9-]+' tunnel.log | head -1)
-
-          if [ -z "$TUNNEL_ID" ]; then
-            echo "::error::Could not extract tunnel ID from logs"
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "::error::Could not extract tunnel URL after 3 minutes"
             echo "Tunnel logs:"
             cat tunnel.log
             exit 1
           fi
 
-          TUNNEL_URL="https://${TUNNEL_ID}.cfargotunnel.com"
           echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
           echo "✓ Tunnel URL: $TUNNEL_URL"
-          echo "✓ Tunnel ID: $TUNNEL_ID"
 
       - name: Trigger frontend deployment with API URL
         if: env.TUNNEL_URL != ''
@@ -139,8 +139,7 @@ jobs:
           # Trigger deploy-webapp workflow with the tunnel URL
           # No git commits - URL passed as workflow input
           gh workflow run deploy-webapp.yml \
-            --field api_url="${{ env.TUNNEL_URL }}" \
-            --field status="online"
+            --raw-field api_url="${{ env.TUNNEL_URL }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

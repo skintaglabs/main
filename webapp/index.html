@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="AI-powered skin lesion screening for underserved communities">
+    <meta name="theme-color" content="#f6f4f0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
     <title>SkinTag — AI Dermatology Screening</title>
+
+    <link rel="manifest" href="manifest.json">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -48,6 +55,7 @@
             line-height: 1.6;
             font-size: 15px;
             -webkit-font-smoothing: antialiased;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
 
         /* ── Noise texture overlay ── */
@@ -784,11 +792,10 @@
         </footer>
     </div>
 
-    <script src="config.js"></script>
     <script>
         // API configuration - can be overridden via URL parameter
         const urlParams = new URLSearchParams(window.location.search);
-        const API_URL = urlParams.get('api') || window.API_URL || 'http://localhost:8000';
+        const API_URL = urlParams.get('api') || 'API_URL_PLACEHOLDER' || 'http://localhost:8000';
 
         const $ = id => document.getElementById(id);
         const uploadZone = $('uploadZone');
@@ -927,6 +934,7 @@
 
             results.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+
     </script>
 </body>
 </html>
