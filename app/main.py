@@ -34,7 +34,7 @@ app = FastAPI(title="SkinTag", description="AI-powered skin lesion triage screen
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://medgemma540.github.io",
+        "https://skintaglabs.github.io",
         "http://localhost:*",
         "http://127.0.0.1:*",
     ],

@@ -10,7 +10,7 @@ SkinTag provides preliminary screening for skin lesions using a fine-tuned SigLI
 - Provides actionable recommendations
 - Works on mobile devices with camera support
 
-**Live demo:** https://medgemma540.github.io/SkinTag/
+**Live demo:** https://skintaglabs.github.io/main/
 
 ## Key Features
 
@@ -32,7 +32,7 @@ gh secret set HF_TOKEN
 gh workflow run inference-server.yml
 
 # Frontend auto-deploys with tunnel URL
-# Visit: https://medgemma540.github.io/SkinTag/
+# Visit: https://skintaglabs.github.io/main/
 ```
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
