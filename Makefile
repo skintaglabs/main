@@ -1,4 +1,4 @@
-.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app app-remote stop app-docker app-docker-gpu clean
+.PHONY: help venv install install-gpu data data-ddi data-pad-ufes pipeline pipeline-quick train train-all train-multi evaluate evaluate-cross-domain app webapp webapp-build stop app-docker app-docker-gpu clean
 
 # Python interpreter (prefers venv if available)
 PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo python3; fi)
@@ -30,9 +30,10 @@ help:
 	@echo "  evaluate-cross-domain  Run cross-domain generalization experiment"
 	@echo ""
 	@echo "Application:"
-	@echo "  app                Run web app locally"
-	@echo "  app-remote         Run web app + ngrok tunnel (HTTPS)"
-	@echo "  stop               Stop server and ngrok"
+	@echo "  app                Run API server locally (default: port 8000)"
+	@echo "  webapp             Run React frontend dev server (configure API via .env)"
+	@echo "  webapp-build       Build React frontend for production"
+	@echo "  stop               Stop server"
 	@echo "  app-docker         Build and run web app in Docker (CPU)"
 	@echo "  app-docker-gpu     Build and run web app in Docker (GPU)"
 	@echo ""
@@ -114,12 +115,16 @@ evaluate-cross-domain:
 app:
 	$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT) --reload
 
-app-remote:
-	@$(PYTHON_ENV) $(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port $(PORT) --reload & sleep 2 && ngrok http $(PORT)
+# Set API URL via: webapp-react/.env with VITE_API_URL=http://localhost:8000
+# Or URL param: ?api=http://localhost:8000
+webapp:
+	cd webapp-react && npm install && npm run dev
+
+webapp-build:
+	cd webapp-react && npm install && npm run build
 
 stop:
 	@pkill -f "uvicorn app.main:app" 2>/dev/null || true
-	@pkill -f ngrok 2>/dev/null || true
 	@lsof -ti:$(PORT) | xargs kill -9 2>/dev/null || true
 	@echo "Stopped"
 

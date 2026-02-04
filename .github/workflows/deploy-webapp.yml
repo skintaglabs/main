@@ -1,13 +1,17 @@
-name: Deploy Webapp to GitHub Pages
+name: Deploy Frontend
 
 on:
   push:
     branches: [main]
     paths:
-      - 'app/skintag-webapp/**'
-      - 'public/**'
+      - 'webapp-react/**'
       - '.github/workflows/deploy-webapp.yml'
   workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API endpoint URL'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -20,39 +24,46 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch API URL from git notes
+        run: |
+          git fetch origin refs/notes/commits:refs/notes/commits || true
+          FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+          echo "First commit: $FIRST_COMMIT"
+
+          API_URL=$(git notes show $FIRST_COMMIT 2>/dev/null || echo "")
+          echo "API_URL_FROM_NOTES=$API_URL" >> $GITHUB_ENV
+
+          if [ -n "$API_URL" ]; then
+            echo "✓ Found API URL: $API_URL"
+          else
+            echo "⚠ No API URL found in git notes"
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: 'app/skintag-webapp/package-lock.json'
+          cache-dependency-path: webapp-react/package-lock.json
 
-      - name: Install dependencies
-        working-directory: app/skintag-webapp
+      - name: Install
+        working-directory: webapp-react
         run: npm ci
 
-      - name: Build Next.js app
-        working-directory: app/skintag-webapp
+      - name: Build
+        working-directory: webapp-react
         env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.API_URL }}
-        run: npm run build
-
-      - name: Prepare deployment structure
+          VITE_API_URL: ${{ github.event.inputs.api_url || env.API_URL_FROM_NOTES || secrets.API_URL || '' }}
         run: |
-          mkdir -p dist
-          # Copy landing page
-          cp public/index.html dist/
-          # Copy classic version
-          cp -r public/classic dist/
-          # Copy Next.js build to app/
-          cp -r app/skintag-webapp/out dist/app
-          # Configure API URL for classic version
-          sed -i "s|API_URL_PLACEHOLDER|${{ secrets.API_URL }}|g" dist/classic/config.js
+          echo "Building with API URL: ${VITE_API_URL:-<empty>}"
+          npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -60,13 +71,13 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: 'webapp-react/dist'
 
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     needs: build
     steps:
       - name: Deploy to GitHub Pages
