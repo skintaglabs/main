@@ -20,41 +20,53 @@ export function Results({ results, onAnalyzeAnother }: ResultsProps) {
     <div className="space-y-6">
       <div id="results-capture" className="space-y-6">
         {state.previewUrl && (
-          <div className="flex justify-center">
+          <div className="flex justify-center result-item">
             <img
               src={state.previewUrl}
               alt="Analyzed image"
-              className="w-48 h-48 object-cover rounded-lg border-2 border-[var(--color-border)]"
+              className="w-48 h-48 object-cover rounded-lg border-2 border-[var(--color-border)] preview-image"
             />
           </div>
         )}
 
-        <TierCard
-          tier={results.urgency_tier}
-          confidence={results.confidence}
-          recommendation={results.recommendation}
-        />
+        <div className="result-item">
+          <TierCard
+            tier={results.urgency_tier}
+            confidence={results.confidence}
+            recommendation={results.recommendation}
+          />
+        </div>
 
-        <RiskDisplay
-          score={results.risk_score}
-          tier={results.urgency_tier}
-        />
+        <div className="result-item">
+          <RiskDisplay
+            score={results.risk_score}
+            tier={results.urgency_tier}
+          />
+        </div>
 
-        <ABCDEGrid />
+        <div className="result-item">
+          <ABCDEGrid />
+        </div>
 
         {results.condition_estimate && results.condition_probabilities && (
-          <ConditionCard
-            topCondition={results.condition_estimate}
-            conditions={results.condition_probabilities}
-          />
+          <div className="result-item">
+            <ConditionCard
+              topCondition={results.condition_estimate}
+              conditions={results.condition_probabilities}
+            />
+          </div>
         )}
 
-        <BinaryBarsCard
-          benign={results.probabilities.benign}
-          malignant={results.probabilities.malignant}
-        />
+        <div className="result-item">
+          <BinaryBarsCard
+            benign={results.probabilities.benign}
+            malignant={results.probabilities.malignant}
+          />
+        </div>
 
-        <DisclaimerBanner />
+        <div className="result-item">
+          <DisclaimerBanner />
+        </div>
       </div>
 
       <CTAActions tier={results.urgency_tier} results={results} onAnalyzeAnother={onAnalyzeAnother} />

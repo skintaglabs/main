@@ -15,6 +15,7 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
   const animationFrameRef = useRef<number | undefined>(undefined)
   const [error, setError] = useState<string>('')
   const [isReady, setIsReady] = useState(false)
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
   const [metrics, setMetrics] = useState<{
     distance: 'too_far' | 'good' | 'too_close' | 'unknown'
     handDetected: boolean
@@ -42,12 +43,24 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
     }
   }, [])
 
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [])
+
   const startWebcam = async () => {
     try {
       const isMobile = window.innerWidth < 640
+      const selectedFacingMode = isMobile ? 'environment' : 'user'
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: isMobile ? 'environment' : 'user',
+          facingMode: selectedFacingMode,
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         }
@@ -56,6 +69,7 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         streamRef.current = stream
+        setFacingMode(selectedFacingMode)
         setIsReady(true)
         startAnalysis()
       }
@@ -156,8 +170,10 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center">
-      <div className="relative w-full h-full max-w-5xl flex flex-col">
+    <>
+      <div className="fixed inset-0 z-50 bg-black/95" onClick={handleClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div className="relative w-full h-full max-w-5xl flex flex-col pointer-events-auto">
         <button
           onClick={handleClose}
           className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 text-white hover:bg-black/70 flex items-center justify-center transition-colors"
@@ -185,7 +201,7 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
                   playsInline
                   muted
                   className="max-w-full max-h-[70vh] rounded-lg"
-                  style={{ transform: 'scaleX(-1)' }}
+                  style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
                 />
 
                 {isReady && videoRef.current && metrics.landmarks.length > 0 && (
@@ -266,6 +282,7 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   )
 }
