@@ -10,12 +10,17 @@ export async function downloadResultsAsImage(elementId: string): Promise<void> {
     backgroundColor: '#f6f4f0',
     scale: 2,
     logging: false,
-    useCORS: true
+    useCORS: true,
+    allowTaint: true
   })
 
-  const blob = await new Promise<Blob>((resolve) => {
+  const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
-      if (blob) resolve(blob)
+      if (blob) {
+        resolve(blob)
+      } else {
+        reject(new Error('Failed to create blob from canvas'))
+      }
     }, 'image/png')
   })
 
