@@ -190,6 +190,8 @@ function AppContent() {
 
       <Toaster
         position="top-center"
+        expand={true}
+        visibleToasts={5}
         toastOptions={{
           style: {
             background: 'var(--color-surface)',
