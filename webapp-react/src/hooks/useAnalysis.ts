@@ -3,15 +3,16 @@ import { useNetworkStatus } from './useNetworkStatus'
 import { analyzeImage } from '@/lib/api'
 import { API_URL } from '@/config/api'
 import { toast } from 'sonner'
+import type { AnalysisResult } from '@/types'
 
 export function useAnalysis() {
   const { setIsAnalyzing, setResults } = useAppContext()
   const { isOnline } = useNetworkStatus()
 
-  const analyze = async (file: File) => {
+  const analyze = async (file: File): Promise<AnalysisResult | null> => {
     if (!isOnline) {
       toast.error('No internet connection')
-      return
+      return null
     }
 
     setIsAnalyzing(true)
@@ -26,6 +27,7 @@ export function useAnalysis() {
       toast.dismiss()
       setResults(result)
       toast.success('Analysis complete', { duration: 2000 })
+      return result
     } catch (error) {
       clearTimeout(slowTimeout)
       toast.dismiss()
@@ -40,6 +42,7 @@ export function useAnalysis() {
       } else {
         toast.error('Unable to analyze image')
       }
+      return null
     } finally {
       setIsAnalyzing(false)
     }

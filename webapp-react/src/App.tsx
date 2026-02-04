@@ -1,10 +1,14 @@
+import { useState, useRef } from 'react'
 import { Toaster } from 'sonner'
+import { toast } from 'sonner'
 import { AppProvider, useAppContext } from '@/contexts/AppContext'
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext'
+import { ThemeProvider } from '@/contexts/ThemeContext'
 import { useImageValidation } from '@/hooks/useImageValidation'
 import { useAnalysis } from '@/hooks/useAnalysis'
+import { useAnalysisHistory } from '@/hooks/useAnalysisHistory'
 import { Header } from '@/components/layout/Header'
 import { Footer } from '@/components/layout/Footer'
+import { BottomNav } from '@/components/layout/BottomNav'
 import { DisclaimerBanner } from '@/components/layout/DisclaimerBanner'
 import { OnboardingModal } from '@/components/layout/OnboardingModal'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
@@ -15,12 +19,15 @@ import { ImageCropper } from '@/components/upload/ImageCropper'
 import { ResultsContainer } from '@/components/results/ResultsContainer'
 import { SkeletonResults } from '@/components/results/SkeletonResults'
 import { Results } from '@/components/results/Results'
+import { HistoryView } from '@/components/history/HistoryView'
 
 function AppContent() {
   const { state, setSelectedFile, clearImage, setShowResults, setShowCropper } = useAppContext()
-  const { theme } = useTheme()
   const { validateImage } = useImageValidation()
   const { analyze } = useAnalysis()
+  const { saveAnalysis } = useAnalysisHistory()
+  const [currentView, setCurrentView] = useState<'upload' | 'history'>('upload')
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = (file: File, previewUrl: string) => {
     setSelectedFile(file, previewUrl)
@@ -34,9 +41,18 @@ function AppContent() {
     }
   }
 
-  const handleAnalyze = () => {
-    if (state.selectedFile) {
-      analyze(state.selectedFile)
+  const handleAnalyze = async () => {
+    if (!state.selectedFile) return
+
+    const results = await analyze(state.selectedFile)
+
+    if (results) {
+      try {
+        await saveAnalysis(state.selectedFile, results, state.selectedFile.name)
+        toast.success('Analysis saved to history', { duration: 2000 })
+      } catch {
+        console.error('Failed to save to history')
+      }
     }
   }
 
@@ -65,70 +81,103 @@ function AppContent() {
     setShowCropper(false)
   }
 
+  const handleCameraClick = () => {
+    cameraInputRef.current?.click()
+  }
+
+  const handleCameraInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      await handleCameraCapture(file)
+      if (currentView === 'history') {
+        setCurrentView('upload')
+      }
+    }
+  }
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col pb-16">
       <OnboardingModal />
 
-      <div className="fixed top-4 right-4 z-50 sm:top-6 sm:right-6">
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleCameraInputChange}
+        className="hidden"
+      />
+
+      <div className="fixed top-4 right-4 z-50">
         <ThemeToggle />
       </div>
 
-      <div className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6">
+      <div className="flex-1 w-full max-w-3xl mx-auto px-4">
         <Header />
 
         <main className="pb-8">
-          <div className="mb-6">
-            <DisclaimerBanner />
-          </div>
+          {currentView === 'history' ? (
+            <HistoryView onClose={() => setCurrentView('upload')} />
+          ) : (
+            <>
+              <div className="mb-6">
+                <DisclaimerBanner />
+              </div>
 
-          {!state.selectedFile && (
-            <div className="space-y-4">
-              <UploadZone onFileSelect={handleFileSelect} />
-              <CameraButton onCapture={handleCameraCapture} />
-            </div>
-          )}
+              {!state.selectedFile && (
+                <div className="space-y-4">
+                  <UploadZone onFileSelect={handleFileSelect} />
+                  <CameraButton onCapture={handleCameraCapture} />
+                </div>
+              )}
 
-          {state.selectedFile && state.previewUrl && !state.isAnalyzing && !state.showResults && !state.showCropper && (
-            <PreviewCard
-              file={state.selectedFile}
-              previewUrl={state.previewUrl}
-              onClear={clearImage}
-              onAnalyze={handleAnalyze}
-              onCrop={handleShowCropper}
-            />
-          )}
+              {state.selectedFile && state.previewUrl && !state.isAnalyzing && !state.showResults && !state.showCropper && (
+                <PreviewCard
+                  file={state.selectedFile}
+                  previewUrl={state.previewUrl}
+                  onClear={clearImage}
+                  onAnalyze={handleAnalyze}
+                  onCrop={handleShowCropper}
+                />
+              )}
 
-          {state.selectedFile && state.previewUrl && state.showCropper && (
-            <ImageCropper
-              imageUrl={state.previewUrl}
-              onCropComplete={handleCropComplete}
-              onCancel={handleCancelCrop}
-            />
-          )}
+              {state.selectedFile && state.previewUrl && state.showCropper && (
+                <ImageCropper
+                  imageUrl={state.previewUrl}
+                  onCropComplete={handleCropComplete}
+                  onCancel={handleCancelCrop}
+                />
+              )}
 
-          {state.isAnalyzing && (
-            <div className="max-w-2xl mx-auto">
-              <SkeletonResults />
-            </div>
-          )}
+              {state.isAnalyzing && (
+                <div className="max-w-2xl mx-auto">
+                  <SkeletonResults />
+                </div>
+              )}
 
-          {state.results && (
-            <ResultsContainer showResults={state.showResults} onClose={handleCloseResults}>
-              <Results results={state.results} />
-            </ResultsContainer>
+              {state.results && (
+                <ResultsContainer showResults={state.showResults} onClose={handleCloseResults}>
+                  <Results results={state.results} />
+                </ResultsContainer>
+              )}
+            </>
           )}
         </main>
       </div>
+
+      <BottomNav
+        currentView={currentView}
+        onNavigate={setCurrentView}
+        onCameraClick={handleCameraClick}
+      />
 
       <Footer />
 
       <Toaster
         position="top-center"
-        theme={theme}
         toastOptions={{
           style: {
             background: 'var(--color-surface)',
-            color: 'var(--color-text)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius)',
             boxShadow: 'var(--shadow-lg)',
