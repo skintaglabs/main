@@ -79,12 +79,7 @@ function AppContent() {
   }
 
   const handleCameraClick = () => {
-    const isDesktop = window.innerWidth >= 640
-    if (isDesktop) {
-      setShowWebcam(true)
-    } else {
-      cameraInputRef.current?.click()
-    }
+    setShowWebcam(true)
   }
 
   const handleWebcamCapture = async (file: File) => {

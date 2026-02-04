@@ -44,9 +44,10 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
 
   const startWebcam = async () => {
     try {
+      const isMobile = window.innerWidth < 640
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'user',
+          facingMode: isMobile ? 'environment' : 'user',
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         }
