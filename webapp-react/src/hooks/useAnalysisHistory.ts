@@ -70,34 +70,36 @@ export function useAnalysisHistory() {
     fileName: string
   ): Promise<void> => {
     try {
+      // Read the file first before opening the transaction
+      const imageUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(imageBlob)
+      })
+
+      // Now open the transaction with the data ready
       const db = await openDB()
       const transaction = db.transaction(STORE_NAME, 'readwrite')
       const store = transaction.objectStore(STORE_NAME)
 
-      const reader = new FileReader()
-      reader.readAsDataURL(imageBlob)
+      const entry: HistoryEntry = {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        imageUrl,
+        results,
+        fileName
+      }
 
       return new Promise((resolve, reject) => {
-        reader.onload = () => {
-          const entry: HistoryEntry = {
-            id: crypto.randomUUID(),
-            timestamp: Date.now(),
-            imageUrl: reader.result as string,
-            results,
-            fileName
-          }
+        const request = store.add(entry)
 
-          const request = store.add(entry)
-
-          request.onsuccess = () => {
-            loadHistory()
-            resolve()
-          }
-
-          request.onerror = () => reject(request.error)
+        request.onsuccess = () => {
+          loadHistory()
+          resolve()
         }
 
-        reader.onerror = () => reject(reader.error)
+        request.onerror = () => reject(request.error)
       })
     } catch (error) {
       console.error('Error saving analysis:', error)
