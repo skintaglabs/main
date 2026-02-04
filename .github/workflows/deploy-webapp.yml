@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'webapp/**'
+      - 'webapp-react/**'
       - '.github/workflows/deploy-webapp.yml'
   workflow_dispatch:
     inputs:
@@ -29,20 +29,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare deployment
-        run: |
-          mkdir -p dist
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: webapp-react/package-lock.json
 
-          # Copy unified webapp
-          cp -r webapp/* dist/
+      - name: Install
+        working-directory: webapp-react
+        run: npm ci
 
-          # Configure API URL from workflow input
-          API_URL='${{ github.event.inputs.api_url || secrets.API_URL || '' }}'
-
-          # Replace placeholder directly in index.html
-          if [ -f dist/index.html ]; then
-            sed -i "s|API_URL_PLACEHOLDER|${API_URL}|g" dist/index.html
-          fi
+      - name: Build
+        working-directory: webapp-react
+        env:
+          VITE_API_URL: ${{ github.event.inputs.api_url || secrets.API_URL || '' }}
+        run: npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -50,7 +52,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: 'webapp-react/dist'
 
   deploy:
     environment:

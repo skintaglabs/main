@@ -30,14 +30,10 @@ from src.utils.model_hub import download_model_from_hf, download_e2e_model_from_
 
 app = FastAPI(title="SkinTag", description="AI-powered skin lesion triage screening tool")
 
-# Enable CORS for GitHub Pages
+# Enable CORS for GitHub Pages and local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://skintaglabs.github.io",
-        "http://localhost:*",
-        "http://127.0.0.1:*",
-    ],
+    allow_origin_regex=r"https://.*\.github\.io|http://localhost:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
