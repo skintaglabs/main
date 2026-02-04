@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Cropper from 'react-easy-crop'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { X, Check } from 'lucide-react'
 import type { Area } from 'react-easy-crop'
 
@@ -55,6 +56,14 @@ export function ImageCropper({ imageUrl, onCropComplete, onCancel }: ImageCroppe
   const [crop, setCrop] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   const onCropChange = useCallback((crop: { x: number; y: number }) => {
     setCrop(crop)
@@ -80,9 +89,9 @@ export function ImageCropper({ imageUrl, onCropComplete, onCancel }: ImageCroppe
     }
   }
 
-  return (
-    <Card className="overflow-hidden">
-      <div className="relative aspect-[4/3] bg-[var(--color-text)]">
+  const content = (
+    <div className="flex flex-col">
+      <div className="relative w-full h-[400px] bg-[var(--color-text)]">
         <Cropper
           image={imageUrl}
           crop={crop}
@@ -94,7 +103,7 @@ export function ImageCropper({ imageUrl, onCropComplete, onCancel }: ImageCroppe
         />
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-6 space-y-4">
         <div>
           <label className="text-[13px] text-[var(--color-text-muted)] mb-2 block">
             Zoom
@@ -125,6 +134,24 @@ export function ImageCropper({ imageUrl, onCropComplete, onCancel }: ImageCroppe
           </Button>
         </div>
       </div>
-    </Card>
+    </div>
+  )
+
+  if (isMobile) {
+    return (
+      <Sheet open={true} onOpenChange={onCancel}>
+        <SheetContent className="p-0">
+          {content}
+        </SheetContent>
+      </Sheet>
+    )
+  }
+
+  return (
+    <Dialog open={true} onOpenChange={onCancel}>
+      <DialogContent className="max-w-2xl p-0 overflow-hidden">
+        {content}
+      </DialogContent>
+    </Dialog>
   )
 }
