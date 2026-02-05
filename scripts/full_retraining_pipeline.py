@@ -53,7 +53,11 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
+
+# For SigLIP fine-tuning
+from transformers import AutoModel, AutoImageProcessor
 
 
 # =============================================================================
@@ -111,11 +115,11 @@ def get_field_condition_augmentation(severity="moderate"):
     """
 
     if severity == "light":
-        blur_limit, noise_var, brightness = 3, 30, 0.2
+        blur_limit, noise_std, brightness = 3, 0.06, 0.2
     elif severity == "heavy":
-        blur_limit, noise_var, brightness = 9, 80, 0.4
+        blur_limit, noise_std, brightness = 9, 0.15, 0.4
     else:  # moderate
-        blur_limit, noise_var, brightness = 5, 50, 0.3
+        blur_limit, noise_std, brightness = 5, 0.10, 0.3
 
     return A.Compose([
         # Motion blur (shaky hands during capture)
@@ -156,15 +160,15 @@ def get_field_condition_augmentation(severity="moderate"):
 
         # Sensor noise (low light, older phones)
         A.OneOf([
-            A.GaussNoise(var_limit=(10, noise_var), p=1.0),
+            A.GaussNoise(std_range=(0.02, noise_std), p=1.0),
             A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=1.0),
             A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1.0),
         ], p=0.4),
 
         # Compression (WhatsApp, social media sharing)
         A.OneOf([
-            A.ImageCompression(quality_lower=40, quality_upper=90, p=1.0),
-            A.Downscale(scale_min=0.4, scale_max=0.8, p=1.0),
+            A.ImageCompression(quality_range=(40, 90), p=1.0),
+            A.Downscale(scale_range=(0.4, 0.8), p=1.0),
         ], p=0.3),
 
         # Shadow from hand/phone (partial occlusion)
@@ -400,6 +404,362 @@ class EfficientNetClassifier(nn.Module):
 
 
 # =============================================================================
+# SIGLIP FINE-TUNING
+# =============================================================================
+
+class FineTunableSigLIP(nn.Module):
+    """SigLIP with unfrozen last N transformer layers for fine-tuning."""
+
+    def __init__(
+        self,
+        model_name="google/siglip-so400m-patch14-384",
+        hidden_dim=512,
+        n_classes=2,
+        dropout=0.3,
+        unfreeze_layers=4,
+    ):
+        super().__init__()
+        self.backbone = AutoModel.from_pretrained(model_name)
+        self.embedding_dim = self.backbone.config.vision_config.hidden_size
+
+        # Freeze all parameters first
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        # Unfreeze last N vision encoder layers
+        if unfreeze_layers > 0:
+            vision_layers = self.backbone.vision_model.encoder.layers
+            for layer in vision_layers[-unfreeze_layers:]:
+                for param in layer.parameters():
+                    param.requires_grad = True
+            print(f"  Unfroze last {unfreeze_layers} transformer layers")
+
+        # Classification head
+        self.head = nn.Sequential(
+            nn.Linear(self.embedding_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, n_classes),
+        )
+
+        # Count trainable params
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in self.parameters())
+        print(f"  Trainable parameters: {trainable:,} / {total:,} ({100*trainable/total:.1f}%)")
+
+    def forward(self, pixel_values):
+        outputs = self.backbone.vision_model(pixel_values=pixel_values)
+        # Get pooled output (CLS token)
+        features = outputs.pooler_output
+        return self.head(features)
+
+    def extract_embeddings(self, pixel_values):
+        """Extract embeddings without classification head."""
+        with torch.no_grad():
+            outputs = self.backbone.vision_model(pixel_values=pixel_values)
+            return outputs.pooler_output
+
+
+class SigLIPDataset(Dataset):
+    """Dataset for SigLIP fine-tuning with proper preprocessing."""
+
+    def __init__(self, image_paths, binary_labels, condition_labels, processor, augment=None):
+        self.image_paths = image_paths
+        self.binary_labels = binary_labels
+        self.condition_labels = condition_labels
+        self.processor = processor
+        self.augment = augment
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        try:
+            image = Image.open(img_path).convert("RGB")
+            image_np = np.array(image)
+        except Exception as e:
+            print(f"Warning: Failed to load {img_path}: {e}")
+            image_np = np.zeros((384, 384, 3), dtype=np.uint8)
+
+        # Apply augmentation (albumentations)
+        if self.augment:
+            augmented = self.augment(image=image_np)
+            image_np = augmented["image"]
+
+        # Convert back to PIL for processor
+        image_pil = Image.fromarray(image_np)
+
+        # Process for SigLIP
+        inputs = self.processor(images=image_pil, return_tensors="pt")
+        pixel_values = inputs["pixel_values"].squeeze(0)
+
+        return {
+            "pixel_values": pixel_values,
+            "binary_label": torch.tensor(self.binary_labels[idx], dtype=torch.long),
+            "condition_label": torch.tensor(self.condition_labels[idx], dtype=torch.long),
+        }
+
+
+def get_siglip_augmentation(image_size=384, severity="moderate"):
+    """Augmentation pipeline for SigLIP fine-tuning (no normalize/tensor - processor handles that)."""
+    return A.Compose([
+        A.Resize(image_size, image_size),
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.5),
+        A.Rotate(limit=180, border_mode=0, p=0.5),
+
+        # Field conditions (same as mobile training)
+        get_field_condition_augmentation(severity=severity),
+
+        # Random crop/scale
+        A.RandomResizedCrop(
+            size=(image_size, image_size),
+            scale=(0.8, 1.0),
+            ratio=(0.9, 1.1),
+            p=0.3,
+        ),
+    ])
+
+
+def finetune_siglip(
+    data,
+    output_dir,
+    model_name="google/siglip-so400m-patch14-384",
+    epochs=10,
+    batch_size=8,
+    lr=1e-5,
+    unfreeze_layers=4,
+    device="cuda",
+    accumulation_steps=4,
+):
+    """Fine-tune SigLIP with field condition augmentations.
+
+    Args:
+        data: Dict with train_meta, test_meta, y_train_binary, etc.
+        output_dir: Where to save the fine-tuned model
+        model_name: HuggingFace model ID
+        epochs: Training epochs
+        batch_size: Batch size (use small + gradient accumulation for large model)
+        lr: Learning rate (use small for fine-tuning)
+        unfreeze_layers: Number of transformer layers to unfreeze
+        device: cuda or cpu
+        accumulation_steps: Gradient accumulation steps
+
+    Returns:
+        Tuple of (model, processor, train_embeddings, test_embeddings)
+    """
+    print("\n" + "=" * 60)
+    print("FINE-TUNING SIGLIP WITH FIELD AUGMENTATIONS")
+    print("=" * 60)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for valid image paths
+    train_meta = data["train_meta"]
+    test_meta = data["test_meta"]
+
+    if "image_path" not in train_meta.columns:
+        print("  Error: No image paths in metadata")
+        return None, None, None, None
+
+    train_valid = train_meta["image_path"].notna()
+    test_valid = test_meta["image_path"].notna()
+
+    if train_valid.sum() < 100:
+        print(f"  Error: Only {train_valid.sum()} valid images, need at least 100")
+        return None, None, None, None
+
+    train_paths = train_meta.loc[train_valid, "image_path"].values
+    train_binary = data["y_train_binary"][train_valid.values]
+    train_condition = data["y_train_condition"][train_valid.values]
+
+    test_paths = test_meta.loc[test_valid, "image_path"].values
+    test_binary = data["y_test_binary"][test_valid.values]
+    test_condition = data["y_test_condition"][test_valid.values]
+
+    print(f"  Training images: {len(train_paths)}")
+    print(f"  Test images: {len(test_paths)}")
+
+    # Load processor
+    processor = AutoImageProcessor.from_pretrained(model_name)
+
+    # Create datasets
+    train_augment = get_siglip_augmentation(severity="moderate")
+    train_dataset = SigLIPDataset(
+        train_paths, train_binary, train_condition, processor, augment=train_augment
+    )
+    test_dataset = SigLIPDataset(
+        test_paths, test_binary, test_condition, processor, augment=None
+    )
+
+    # Weighted sampler
+    sampler = create_weighted_sampler(train_condition)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    # Larger batch for evaluation (no gradients = less VRAM)
+    eval_batch_size = batch_size * 4
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=eval_batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    # Create model
+    print(f"\n  Loading {model_name}...")
+    model = FineTunableSigLIP(
+        model_name=model_name,
+        hidden_dim=512,
+        n_classes=2,
+        dropout=0.3,
+        unfreeze_layers=unfreeze_layers,
+    ).to(device)
+
+    # Optimizer with different LR for backbone vs head
+    backbone_params = [p for n, p in model.named_parameters()
+                       if "backbone" in n and p.requires_grad]
+    head_params = [p for n, p in model.named_parameters() if "head" in n]
+
+    optimizer = torch.optim.AdamW([
+        {"params": backbone_params, "lr": lr},
+        {"params": head_params, "lr": lr * 10},  # Higher LR for head
+    ], weight_decay=0.01)
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    # Loss with class weight for high sensitivity
+    criterion = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 3.0], device=device))
+
+    # Training loop
+    best_auc = 0
+    best_state = None
+
+    for epoch in range(epochs):
+        model.train()
+        train_loss = 0
+        optimizer.zero_grad()
+
+        pbar = tqdm(enumerate(train_loader), total=len(train_loader),
+                    desc=f"Epoch {epoch+1}/{epochs}", leave=False)
+
+        for step, batch in pbar:
+            pixel_values = batch["pixel_values"].to(device)
+            labels = batch["binary_label"].to(device)
+
+            logits = model(pixel_values)
+            loss = criterion(logits, labels) / accumulation_steps
+
+            loss.backward()
+            train_loss += loss.item() * accumulation_steps
+
+            if (step + 1) % accumulation_steps == 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
+
+            pbar.set_postfix({"loss": f"{train_loss/(step+1):.4f}"})
+
+        scheduler.step()
+
+        avg_loss = train_loss / len(train_loader)
+
+        # Evaluate every 2 epochs and on the last epoch
+        eval_interval = max(1, epochs // 5) if epochs > 3 else 1
+        if (epoch + 1) % eval_interval == 0 or (epoch + 1) == epochs:
+            model.eval()
+            all_probs = []
+            all_labels = []
+
+            with torch.no_grad():
+                for batch in tqdm(test_loader, desc="Evaluating", leave=False):
+                    pixel_values = batch["pixel_values"].to(device)
+                    labels = batch["binary_label"]
+
+                    logits = model(pixel_values)
+                    probs = F.softmax(logits, dim=1)[:, 1].cpu().numpy()
+
+                    all_probs.extend(probs)
+                    all_labels.extend(labels.numpy())
+
+            auc = roc_auc_score(all_labels, all_probs)
+            print(f"  Epoch {epoch+1}: Loss={avg_loss:.4f}, AUC={auc:.3f}")
+
+            if auc > best_auc:
+                best_auc = auc
+                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+        else:
+            print(f"  Epoch {epoch+1}: Loss={avg_loss:.4f}")
+
+    # Restore best model
+    if best_state:
+        model.load_state_dict(best_state)
+    model.to(device)
+
+    # Save model
+    torch.save(model.state_dict(), output_dir / "siglip_finetuned.pt")
+    config = {
+        "model_name": model_name,
+        "unfreeze_layers": unfreeze_layers,
+        "best_auc": float(best_auc),
+        "embedding_dim": model.embedding_dim,
+    }
+    with open(output_dir / "config.json", "w") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"\n  Best AUC: {best_auc:.3f}")
+    print(f"  Model saved to {output_dir}")
+
+    # Extract embeddings from fine-tuned model
+    # IMPORTANT: Use a sequential loader (no sampler) so embeddings align with labels
+    print("\n  Extracting fine-tuned embeddings...")
+    model.eval()
+
+    train_sequential_loader = DataLoader(
+        train_dataset,
+        batch_size=eval_batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    def extract_embeddings(loader, desc):
+        embeddings = []
+        with torch.no_grad():
+            for batch in tqdm(loader, desc=desc, leave=False):
+                pixel_values = batch["pixel_values"].to(device)
+                emb = model.extract_embeddings(pixel_values)
+                embeddings.append(emb.cpu())
+        return torch.cat(embeddings, dim=0)
+
+    train_embeddings = extract_embeddings(train_sequential_loader, "Train embeddings")
+    test_embeddings = extract_embeddings(test_loader, "Test embeddings")
+
+    # Save embeddings
+    torch.save(train_embeddings, output_dir / "embeddings_train.pt")
+    torch.save(test_embeddings, output_dir / "embeddings_test.pt")
+
+    print(f"  Train embeddings: {train_embeddings.shape}")
+    print(f"  Test embeddings: {test_embeddings.shape}")
+
+    return model, processor, train_embeddings.numpy(), test_embeddings.numpy()
+
+
+# =============================================================================
 # XGBOOST AND SKLEARN CLASSIFIERS
 # =============================================================================
 
@@ -629,6 +989,70 @@ def compare_embedding_approaches(cache_dir, output_dir):
 # TRAINING FUNCTIONS
 # =============================================================================
 
+def reconstruct_image_paths(meta_df, data_dir):
+    """Reconstruct image paths from sample_id and dataset columns.
+
+    Args:
+        meta_df: DataFrame with sample_id and dataset columns
+        data_dir: Base data directory
+
+    Returns:
+        List of image paths (or None if path doesn't exist)
+    """
+    data_dir = Path(data_dir)
+
+    # Dataset-specific path patterns
+    path_patterns = {
+        "ham10000": [
+            data_dir / "Skin Cancer" / "Skin Cancer" / "{sample_id}.jpg",
+            data_dir / "Skin Cancer" / "{sample_id}.jpg",
+            data_dir / "HAM10000_images_part_1" / "{sample_id}.jpg",
+            data_dir / "HAM10000_images_part_2" / "{sample_id}.jpg",
+        ],
+        "ddi": [
+            data_dir / "ddi" / "images" / "{sample_id}.jpg",
+            data_dir / "ddi" / "images" / "{sample_id}.png",
+        ],
+        "fitzpatrick17k": [
+            data_dir / "fitzpatrick17k" / "images" / "{sample_id}.jpg",
+            data_dir / "fitzpatrick17k" / "images" / "{sample_id}.png",
+        ],
+        "pad_ufes": [
+            data_dir / "pad_ufes" / "images" / "{sample_id}.png",
+            data_dir / "pad_ufes" / "images" / "{sample_id}.jpg",
+        ],
+        "bcn20000": [
+            data_dir / "bcn20000" / "images" / "{sample_id}.jpg",
+            data_dir / "bcn20000" / "images" / "{sample_id}.JPG",
+        ],
+    }
+
+    image_paths = []
+    missing_count = 0
+
+    for _, row in meta_df.iterrows():
+        sample_id = row["sample_id"]
+        dataset = row["dataset"]
+
+        found_path = None
+        patterns = path_patterns.get(dataset, [])
+
+        for pattern in patterns:
+            path = Path(str(pattern).format(sample_id=sample_id))
+            if path.exists():
+                found_path = str(path)
+                break
+
+        if found_path is None:
+            missing_count += 1
+        image_paths.append(found_path)
+
+    if missing_count > 0:
+        print(f"  Warning: {missing_count}/{len(meta_df)} images not found")
+
+    return image_paths
+
+
 def load_data(cache_dir, data_dir=None, quick=False):
     """Load metadata and prepare data splits."""
     print("\n" + "=" * 60)
@@ -636,6 +1060,10 @@ def load_data(cache_dir, data_dir=None, quick=False):
     print("=" * 60)
 
     cache_dir = Path(cache_dir)
+
+    # Default data directory
+    if data_dir is None:
+        data_dir = Path(__file__).parent.parent / "data"
 
     # Load metadata
     full_meta = pd.read_csv(cache_dir / "metadata.csv")
@@ -659,6 +1087,23 @@ def load_data(cache_dir, data_dir=None, quick=False):
     print(f"  Train samples: {len(train_meta)}")
     print(f"  Test samples: {len(test_meta_aligned)}")
     print(f"  Train malignant: {train_meta['label'].sum()}")
+
+    # Reconstruct image paths for mobile model training
+    if data_dir and Path(data_dir).exists():
+        print("  Reconstructing image paths...")
+        train_paths = reconstruct_image_paths(train_meta, data_dir)
+        test_paths = reconstruct_image_paths(test_meta_aligned, data_dir)
+
+        # Add to dataframes
+        train_meta = train_meta.copy()
+        test_meta_aligned = test_meta_aligned.copy()
+        train_meta["image_path"] = train_paths
+        test_meta_aligned["image_path"] = test_paths
+
+        # Count valid paths
+        valid_train = sum(1 for p in train_paths if p is not None)
+        valid_test = sum(1 for p in test_paths if p is not None)
+        print(f"  Valid image paths: {valid_train}/{len(train_paths)} train, {valid_test}/{len(test_paths)} test")
 
     # Load embeddings if available (for classifier training)
     embeddings_path = cache_dir / "embeddings.pt"
@@ -872,45 +1317,64 @@ def train_mobile_model(
     if "image_path" not in data["train_meta"].columns:
         print("  Error: No image paths in metadata, skipping mobile training")
         print("  Note: Mobile models require raw images for augmentation")
+        print("  Hint: Use --data_dir to specify data directory location")
         return None
+
+    # Filter to samples with valid image paths
+    train_meta = data["train_meta"]
+    test_meta = data["test_meta"]
+
+    train_valid = train_meta["image_path"].notna()
+    test_valid = test_meta["image_path"].notna()
+
+    if train_valid.sum() == 0:
+        print("  Error: No valid image paths found, skipping mobile training")
+        print("  Hint: Check that --data_dir points to your data folder")
+        return None
+
+    train_paths = train_meta.loc[train_valid, "image_path"].values
+    train_binary = data["y_train_binary"][train_valid.values]
+    train_condition = data["y_train_condition"][train_valid.values]
+
+    test_paths = test_meta.loc[test_valid, "image_path"].values
+    test_binary = data["y_test_binary"][test_valid.values]
+    test_condition = data["y_test_condition"][test_valid.values]
+
+    print(f"  Using {len(train_paths)} train, {len(test_paths)} test images")
 
     # Create transforms
     train_transform = get_clinical_training_transform(image_size=image_size)
     eval_transform = get_eval_transform(image_size=image_size)
 
-    # Get image paths
-    train_paths = data["train_meta"]["image_path"].values
-    test_paths = data["test_meta"]["image_path"].values
-
     # Create datasets
     train_dataset = SkinLesionDataset(
         train_paths,
-        data["y_train_binary"],
-        data["y_train_condition"],
+        train_binary,
+        train_condition,
         transform=train_transform,
     )
     test_dataset = SkinLesionDataset(
         test_paths,
-        data["y_test_binary"],
-        data["y_test_condition"],
+        test_binary,
+        test_condition,
         transform=eval_transform,
     )
 
-    # Weighted sampler
-    sampler = create_weighted_sampler(data["y_train_condition"])
+    # Weighted sampler (using filtered condition labels)
+    sampler = create_weighted_sampler(train_condition)
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         sampler=sampler,
-        num_workers=4,
+        num_workers=0,  # Avoid multiprocessing issues on Windows
         pin_memory=True,
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=4,
+        num_workers=0,  # Avoid multiprocessing issues on Windows
         pin_memory=True,
     )
 
@@ -1038,7 +1502,11 @@ def main():
     parser.add_argument("--skip-classifiers", action="store_true", help="Skip classifier training")
     parser.add_argument("--skip-mobile", action="store_true", help="Skip mobile model training")
     parser.add_argument("--compare-finetuning", action="store_true", help="Compare frozen vs fine-tuned")
+    parser.add_argument("--finetune-siglip", action="store_true", help="Fine-tune SigLIP backbone with augmentations")
+    parser.add_argument("--unfreeze-layers", type=int, default=4, help="Transformer layers to unfreeze (default: 4)")
+    parser.add_argument("--finetune-lr", type=float, default=1e-5, help="Learning rate for fine-tuning")
     parser.add_argument("--cache_dir", type=str, default="results/cache")
+    parser.add_argument("--data_dir", type=str, default="data", help="Data directory with images")
     parser.add_argument("--output_dir", type=str, default=None, help="Output dir (default: timestamped)")
     args = parser.parse_args()
 
@@ -1057,7 +1525,7 @@ def main():
     print("NOTE: Existing models in results/cache/ are preserved")
 
     # Load data
-    data = load_data(args.cache_dir, quick=args.quick)
+    data = load_data(args.cache_dir, data_dir=args.data_dir, quick=args.quick)
 
     # Track all results
     all_results = {
@@ -1074,6 +1542,36 @@ def main():
     if args.compare_finetuning:
         comparison = compare_embedding_approaches(args.cache_dir, output_dir)
         all_results["comparisons"]["embedding_comparison"] = comparison
+
+    # =================================================================
+    # STEP 1.5: Fine-tune SigLIP with field augmentations
+    # =================================================================
+    finetuned_model = None
+    if args.finetune_siglip:
+        siglip_model, siglip_processor, ft_train_emb, ft_test_emb = finetune_siglip(
+            data,
+            output_dir / "siglip_finetuned",
+            epochs=args.epochs,
+            batch_size=8,  # Small batch for large model
+            lr=args.finetune_lr,
+            unfreeze_layers=args.unfreeze_layers,
+            device=device,
+            accumulation_steps=4,
+        )
+
+        if siglip_model is not None and ft_train_emb is not None:
+            finetuned_model = siglip_model
+            # Use fine-tuned embeddings for classifier training
+            print("\n  Using fine-tuned embeddings for classifier training...")
+            data["X_train_finetuned"] = ft_train_emb
+            data["X_test_finetuned"] = ft_test_emb
+
+            all_results["finetuning"] = {
+                "epochs": args.epochs,
+                "unfreeze_layers": args.unfreeze_layers,
+                "train_embeddings_shape": list(ft_train_emb.shape),
+                "test_embeddings_shape": list(ft_test_emb.shape),
+            }
 
     # =================================================================
     # STEP 2: Train all classifier types
@@ -1165,15 +1663,74 @@ def main():
                 print(f"{name:<25} {auc:>10.3f} {acc:>11.1%} {f1:>10.3f}")
 
     # =================================================================
+    # STEP 2.5: Train classifiers on fine-tuned embeddings (comparison)
+    # =================================================================
+    if "X_train_finetuned" in data and data["X_train_finetuned"] is not None:
+        print("\n" + "=" * 60)
+        print("TRAINING CLASSIFIERS ON FINE-TUNED EMBEDDINGS")
+        print("=" * 60)
+
+        ft_dir = output_dir / "classifiers_finetuned"
+        ft_dir.mkdir(exist_ok=True)
+
+        # XGBoost on fine-tuned embeddings
+        print("\n[FT 1/2] Training XGBoost on fine-tuned embeddings...")
+        ft_xgb_clf, ft_xgb_scaler, ft_xgb_results = train_xgboost_classifier(
+            data["X_train_finetuned"], data["y_train_binary"],
+            data["X_test_finetuned"], data["y_test_binary"],
+            n_classes=2
+        )
+        all_results["classifiers"]["xgboost_finetuned"] = ft_xgb_results
+        print(f"      AUC: {ft_xgb_results['auc']:.3f}, Acc: {ft_xgb_results['accuracy']:.1%}")
+
+        with open(ft_dir / "xgboost_finetuned.pkl", "wb") as f:
+            pickle.dump({"classifier": ft_xgb_clf, "scaler": ft_xgb_scaler}, f)
+
+        # MLP on fine-tuned embeddings
+        print("\n[FT 2/2] Training MLP on fine-tuned embeddings...")
+        ft_mlp_clf, ft_mlp_scaler, ft_mlp_results = train_mlp_classifier(
+            data["X_train_finetuned"], data["y_train_binary"],
+            data["X_test_finetuned"], data["y_test_binary"],
+            n_classes=2
+        )
+        all_results["classifiers"]["mlp_finetuned"] = ft_mlp_results
+        print(f"      AUC: {ft_mlp_results['auc']:.3f}, Acc: {ft_mlp_results['accuracy']:.1%}")
+
+        with open(ft_dir / "mlp_finetuned.pkl", "wb") as f:
+            pickle.dump({"classifier": ft_mlp_clf, "scaler": ft_mlp_scaler}, f)
+
+        # Print frozen vs fine-tuned comparison
+        if "xgboost_binary" in all_results["classifiers"]:
+            frozen_auc = all_results["classifiers"]["xgboost_binary"]["auc"]
+            finetuned_auc = ft_xgb_results["auc"]
+            improvement = (finetuned_auc - frozen_auc) / frozen_auc * 100
+
+            print("\n" + "-" * 60)
+            print("FROZEN vs FINE-TUNED COMPARISON (XGBoost)")
+            print("-" * 60)
+            print(f"  Frozen embeddings:     AUC = {frozen_auc:.4f}")
+            print(f"  Fine-tuned embeddings: AUC = {finetuned_auc:.4f}")
+            print(f"  Improvement:           {improvement:+.2f}%")
+
+            all_results["finetuning"]["frozen_auc"] = frozen_auc
+            all_results["finetuning"]["finetuned_auc"] = finetuned_auc
+            all_results["finetuning"]["improvement_pct"] = improvement
+
+    # =================================================================
     # STEP 3: Train mobile models (with augmentation)
     # =================================================================
     if not args.skip_mobile:
+        # Use fine-tuned SigLIP as teacher if available
+        teacher = finetuned_model if finetuned_model is not None else None
+        if teacher:
+            print("\n  Using fine-tuned SigLIP as teacher for knowledge distillation")
+
         # MobileNetV3-Large
         print("\n[Mobile 1/2] Training MobileNetV3-Large...")
         mobilenet = train_mobile_model(
             MobileNetClassifier,
             "mobilenet_v3_large",
-            None,  # No teacher for now
+            teacher,
             data,
             output_dir / "mobilenet",
             epochs=args.mobile_epochs if not args.quick else 3,
@@ -1190,7 +1747,7 @@ def main():
         efficientnet = train_mobile_model(
             EfficientNetClassifier,
             "efficientnet_b0",
-            None,
+            teacher,
             data,
             output_dir / "efficientnet",
             epochs=args.mobile_epochs if not args.quick else 3,
