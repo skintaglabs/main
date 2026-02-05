@@ -1,6 +1,14 @@
 name: Inference Server B
 
 on:
+  workflow_dispatch:
+    inputs:
+      duration_hours:
+        description: 'Duration (max 5.5 hours)'
+        required: false
+        default: '5'
+        type: string
+
   workflow_run:
     workflows: ["Inference Server A"]
     types: [completed]
@@ -169,6 +177,7 @@ jobs:
           cat server.log | tail -20
 
       - name: Monitor
+        id: monitor
         run: |
           cleanup() {
             echo "Cleaning up..."
@@ -181,7 +190,7 @@ jobs:
           }
           trap cleanup SIGTERM SIGINT
 
-          DURATION_HOURS="5"
+          DURATION_HOURS="${{ github.event.inputs.duration_hours || '5' }}"
           DURATION=$(awk "BEGIN {printf \"%.0f\", $DURATION_HOURS * 3600}")
           RESTART_THRESHOLD=$((DURATION - 360))
           START_TIME=$(date +%s)
@@ -214,9 +223,10 @@ jobs:
               if [ "$AUTO_RESTART" = "true" ]; then
                 echo ""
                 echo "=========================================="
-                echo "Handoff time reached. Completing workflow to trigger Server A..."
+                echo "Handoff time reached. Triggering Server A..."
                 echo "=========================================="
                 RESTART_TRIGGERED=true
+                echo "should_trigger=true" >> $GITHUB_OUTPUT
                 sleep 90
                 break
               fi
@@ -227,6 +237,15 @@ jobs:
           done
 
           cleanup
+
+      - name: Trigger Server A handoff
+        if: steps.monitor.outputs.should_trigger == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run inference-server-a.yml \
+            --raw-field duration_hours="${{ github.event.inputs.duration_hours || '5' }}" \
+            --raw-field auto_restart="true"
 
       - name: Show logs on failure
         if: failure()

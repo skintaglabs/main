@@ -182,6 +182,7 @@ jobs:
           cat server.log | tail -20
 
       - name: Monitor
+        id: monitor
         run: |
           cleanup() {
             echo "Cleaning up..."
@@ -231,9 +232,10 @@ jobs:
               if [ "$AUTO_RESTART" = "true" ]; then
                 echo ""
                 echo "=========================================="
-                echo "Handoff time reached. Completing workflow to trigger Server B..."
+                echo "Handoff time reached. Triggering Server B..."
                 echo "=========================================="
                 RESTART_TRIGGERED=true
+                echo "should_trigger=true" >> $GITHUB_OUTPUT
                 sleep 90
                 break
               fi
@@ -244,6 +246,14 @@ jobs:
           done
 
           cleanup
+
+      - name: Trigger Server B handoff
+        if: steps.monitor.outputs.should_trigger == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run inference-server-b.yml \
+            --raw-field duration_hours="${{ github.event.inputs.duration_hours || '5' }}"
 
       - name: Show logs on failure
         if: failure()
