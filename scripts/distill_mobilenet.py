@@ -4,8 +4,13 @@
 This script trains a lightweight MobileNetV3-Large model to mimic the predictions
 of the larger SigLIP teacher model, enabling deployment on mobile devices.
 
+Supports two teacher model formats:
+  1. EndToEndSigLIP from models/finetuned_siglip/ (original pipeline)
+  2. FineTunableSigLIP from retraining pipeline (scripts/full_retraining_pipeline.py)
+
 Usage:
     python scripts/distill_mobilenet.py --epochs 30
+    python scripts/distill_mobilenet.py --epochs 30 --retraining-teacher results/cache/clinical_v20260204_161741/siglip_finetuned
 """
 
 import argparse
@@ -14,6 +19,7 @@ import sys
 import time
 from pathlib import Path
 
+import albumentations as A
 import numpy as np
 import torch
 import torch.nn as nn
@@ -104,32 +110,57 @@ class DistillationLoss(nn.Module):
         return self.alpha * soft_loss + (1 - self.alpha) * hard_loss
 
 
-def load_teacher_model(teacher_dir, device):
-    """Load the fine-tuned SigLIP teacher model."""
-    from src.model.deep_classifier import EndToEndSigLIP
+def load_teacher_model(teacher_dir, device, retraining_format=False):
+    """Load the fine-tuned SigLIP teacher model.
+
+    Args:
+        teacher_dir: Path to teacher model directory
+        device: Device to load model on
+        retraining_format: If True, load FineTunableSigLIP from retraining pipeline
+                          (scripts/full_retraining_pipeline.py) instead of EndToEndSigLIP
+    """
     from transformers import AutoImageProcessor
 
     config_path = Path(teacher_dir) / "config.json"
-    weights_path = Path(teacher_dir) / "model_state.pt"
 
     with open(config_path) as f:
         config = json.load(f)
 
-    model = EndToEndSigLIP(
-        model_name=config["model_name"],
-        hidden_dim=config["hidden_dim"],
-        n_classes=config["n_classes"],
-        dropout=config["dropout"],
-        unfreeze_layers=config["unfreeze_layers"],
-    )
+    model_name = config["model_name"]
 
-    state_dict = torch.load(weights_path, map_location=device)
-    model.load_state_dict(state_dict)
+    if retraining_format:
+        # Load FineTunableSigLIP from retraining pipeline
+        from scripts.full_retraining_pipeline import FineTunableSigLIP
+        weights_path = Path(teacher_dir) / "siglip_finetuned.pt"
+
+        model = FineTunableSigLIP(
+            model_name=model_name,
+            hidden_dim=512,
+            n_classes=2,
+            dropout=0.3,
+            unfreeze_layers=config.get("unfreeze_layers", 4),
+        )
+        state_dict = torch.load(weights_path, map_location=device)
+        model.load_state_dict(state_dict)
+    else:
+        # Load EndToEndSigLIP from original pipeline
+        from src.model.deep_classifier import EndToEndSigLIP
+        weights_path = Path(teacher_dir) / "model_state.pt"
+
+        model = EndToEndSigLIP(
+            model_name=model_name,
+            hidden_dim=config["hidden_dim"],
+            n_classes=config["n_classes"],
+            dropout=config["dropout"],
+            unfreeze_layers=config["unfreeze_layers"],
+        )
+        state_dict = torch.load(weights_path, map_location=device)
+        model.load_state_dict(state_dict)
+
     model.to(device)
     model.eval()
 
-    processor = AutoImageProcessor.from_pretrained(config["model_name"])
-
+    processor = AutoImageProcessor.from_pretrained(model_name)
     return model, processor
 
 
@@ -154,29 +185,92 @@ def compute_teacher_logits(model, processor, image_paths, batch_size, device):
     return torch.cat(all_logits, dim=0)
 
 
-def get_transforms(image_size=224):
-    """Get train and validation transforms for MobileNet."""
-    normalize = transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-
-    train_transform = transforms.Compose([
-        transforms.Resize((image_size + 32, image_size + 32)),
-        transforms.RandomCrop(image_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
-        transforms.ToTensor(),
-        normalize,
+def get_field_augmentation():
+    """Field condition augmentations matching the retraining pipeline."""
+    return A.Compose([
+        A.OneOf([
+            A.MotionBlur(blur_limit=5, p=1.0),
+            A.GaussianBlur(blur_limit=5, p=1.0),
+        ], p=0.3),
+        A.OneOf([
+            A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=1.0),
+            A.RandomGamma(gamma_limit=(60, 140), p=1.0),
+        ], p=0.4),
+        A.OneOf([
+            A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=20, val_shift_limit=15, p=1.0),
+            A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.15, hue=0.05, p=1.0),
+        ], p=0.3),
+        A.OneOf([
+            A.GaussNoise(std_range=(0.02, 0.10), p=1.0),
+            A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=1.0),
+        ], p=0.3),
+        A.OneOf([
+            A.ImageCompression(quality_range=(40, 90), p=1.0),
+            A.Downscale(scale_range=(0.4, 0.8), p=1.0),
+        ], p=0.2),
+        A.RandomShadow(shadow_roi=(0, 0.5, 1, 1), num_shadows_limit=(1, 2), shadow_dimension=5, p=0.1),
     ])
 
-    val_transform = transforms.Compose([
-        transforms.Resize((image_size, image_size)),
-        transforms.ToTensor(),
-        normalize,
-    ])
+
+class FieldAugTransform:
+    """Wraps albumentations field augmentations + torchvision transforms."""
+
+    def __init__(self, image_size=224, augment=True):
+        self.field_aug = get_field_augmentation() if augment else None
+        normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+        if augment:
+            self.torch_transform = transforms.Compose([
+                transforms.Resize((image_size + 32, image_size + 32)),
+                transforms.RandomCrop(image_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
+                transforms.RandomRotation(15),
+                transforms.ToTensor(),
+                normalize,
+            ])
+        else:
+            self.torch_transform = transforms.Compose([
+                transforms.Resize((image_size, image_size)),
+                transforms.ToTensor(),
+                normalize,
+            ])
+
+    def __call__(self, image):
+        if self.field_aug is not None:
+            import numpy as np
+            image_np = np.array(image)
+            augmented = self.field_aug(image=image_np)
+            image = Image.fromarray(augmented["image"])
+        return self.torch_transform(image)
+
+
+def get_transforms(image_size=224, field_augment=True):
+    """Get train and validation transforms for MobileNet.
+
+    Args:
+        image_size: Target image size
+        field_augment: Whether to apply field condition augmentations during training
+    """
+    train_transform = FieldAugTransform(image_size=image_size, augment=True) if field_augment else None
+    val_transform = FieldAugTransform(image_size=image_size, augment=False)
+
+    if not field_augment:
+        # Fallback to basic torchvision transforms
+        normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+        train_transform = transforms.Compose([
+            transforms.Resize((image_size + 32, image_size + 32)),
+            transforms.RandomCrop(image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
+            transforms.ToTensor(),
+            normalize,
+        ])
 
     return train_transform, val_transform
 
@@ -275,6 +369,13 @@ def main():
     parser.add_argument("--alpha", type=float, default=0.7)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--no_teacher", action="store_true")
+    parser.add_argument("--retraining_teacher", action="store_true",
+                        help="Teacher is from retraining pipeline (FineTunableSigLIP format)")
+    parser.add_argument("--field_augment", action="store_true", default=True,
+                        help="Apply field condition augmentations during training")
+    parser.add_argument("--no_field_augment", dest="field_augment", action="store_false")
+    parser.add_argument("--data_dir", type=str, default="data",
+                        help="Data directory with images")
     parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
@@ -286,7 +387,7 @@ def main():
 
     # Load data
     print("\nLoading data...")
-    data_dir = Path("data")
+    data_dir = Path(args.data_dir)
     samples = load_multi_dataset(data_dir)
 
     all_paths = [str(s.image_path) for s in samples]
@@ -317,7 +418,10 @@ def main():
         teacher_dir = Path(args.teacher_dir)
         if teacher_dir.exists():
             print(f"\nLoading teacher model from {teacher_dir}...")
-            teacher_model, processor = load_teacher_model(str(teacher_dir), device)
+            teacher_model, processor = load_teacher_model(
+                str(teacher_dir), device,
+                retraining_format=args.retraining_teacher,
+            )
 
             teacher_logits = compute_teacher_logits(
                 teacher_model, processor, train_paths, batch_size=16, device=device
@@ -328,7 +432,9 @@ def main():
             print("Training without distillation")
 
     # Create datasets
-    train_transform, val_transform = get_transforms(args.image_size)
+    train_transform, val_transform = get_transforms(
+        args.image_size, field_augment=args.field_augment
+    )
 
     train_dataset = SkinLesionDataset(
         train_paths, train_labels,
@@ -342,11 +448,11 @@ def main():
 
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size,
-        shuffle=True, num_workers=4, pin_memory=True
+        shuffle=True, num_workers=0, pin_memory=True
     )
     val_loader = DataLoader(
         val_dataset, batch_size=args.batch_size,
-        shuffle=False, num_workers=4, pin_memory=True
+        shuffle=False, num_workers=0, pin_memory=True
     )
 
     # Create model
