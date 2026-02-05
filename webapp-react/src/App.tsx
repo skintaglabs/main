@@ -19,9 +19,10 @@ import { SkeletonResults } from '@/components/results/SkeletonResults'
 import { Results } from '@/components/results/Results'
 import { HistoryView } from '@/components/history/HistoryView'
 import { ApiHealthBanner } from '@/components/layout/ApiHealthBanner'
+import { WebcamCapture } from '@/components/camera/WebcamCapture'
 
 function AppContent() {
-  const { state, setSelectedFile, clearImage, setShowResults, setShowCropper } = useAppContext()
+  const { state, setSelectedFile, clearImage, setShowResults, setShowCropper, setShowWebcam } = useAppContext()
   const { validateImage } = useImageValidation()
   const { analyze } = useAnalysis()
   const { saveAnalysis } = useAnalysisHistory()
@@ -78,7 +79,23 @@ function AppContent() {
   }
 
   const handleCameraClick = () => {
-    cameraInputRef.current?.click()
+    setShowWebcam(true)
+  }
+
+  const handleWebcamCapture = async (file: File) => {
+    setShowWebcam(false)
+    const isValid = await validateImage(file)
+    if (isValid) {
+      const previewUrl = URL.createObjectURL(file)
+      setSelectedFile(file, previewUrl)
+      if (currentView === 'history') {
+        setCurrentView('upload')
+      }
+    }
+  }
+
+  const handleWebcamClose = () => {
+    setShowWebcam(false)
   }
 
   const handleCameraInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,8 +181,17 @@ function AppContent() {
 
       <Footer />
 
+      {state.showWebcam && (
+        <WebcamCapture
+          onCapture={handleWebcamCapture}
+          onClose={handleWebcamClose}
+        />
+      )}
+
       <Toaster
         position="top-center"
+        expand={true}
+        visibleToasts={5}
         toastOptions={{
           style: {
             background: 'var(--color-surface)',
