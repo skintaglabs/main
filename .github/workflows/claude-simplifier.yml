@@ -24,5 +24,5 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-simplifier@claude-code-plugins'
-          prompt: '/code-simplifier:code-simplifier'
+          plugins: 'pr-review-toolkit@claude-code-plugins'
+          prompt: '/pr-review-toolkit:code-simplifier'

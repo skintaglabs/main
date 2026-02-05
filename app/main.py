@@ -239,6 +239,7 @@ def _add_condition_estimate(response: dict, image: Image.Image, embedding) -> No
     """Add condition estimate and 3-category triage to response if classifier is available."""
     cond_clf = _state.get("condition_classifier")
     if cond_clf is None:
+        print("Warning: condition_classifier not loaded, skipping triage_categories")
         return
 
     try:
@@ -312,8 +313,10 @@ def _add_condition_estimate(response: dict, image: Image.Image, embedding) -> No
             }
             for cat, prob in category_final.items()
         }
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Failed to add condition estimate: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @app.get("/api/health")

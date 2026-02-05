@@ -110,7 +110,37 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO_ID: ${{ secrets.HF_REPO_ID || 'skintaglabs/siglip-skin-lesion-classifier' }}
         run: |
-          python -c "from src.model.embeddings import EmbeddingExtractor; print('✓ Dependencies OK')"
+          python -c "
+from src.utils.model_hub import download_e2e_model_from_hf, download_model_from_hf, get_model_config
+import os
+
+print('Downloading models from Hugging Face...')
+config = get_model_config()
+repo_id = config['repo_id']
+
+# Download end-to-end model
+try:
+    model_dir = download_e2e_model_from_hf(repo_id=repo_id, cache_subdir='skintag')
+    print(f'✓ Downloaded e2e model to {model_dir}')
+except Exception as e:
+    print(f'E2E model download failed: {e}')
+    # Try downloading classifier head instead
+    try:
+        clf_path = download_model_from_hf(repo_id=repo_id, filename=config['classifier_filename'], cache_subdir='skintag')
+        print(f'✓ Downloaded classifier to {clf_path}')
+    except Exception as e2:
+        print(f'Classifier download failed: {e2}')
+
+# Download condition classifier
+try:
+    cond_path = download_model_from_hf(repo_id=repo_id, filename=config['condition_classifier_filename'], cache_subdir='skintag')
+    print(f'✓ Downloaded condition classifier to {cond_path}')
+except Exception as e:
+    print(f'Warning: Condition classifier download failed: {e}')
+    raise
+
+print('✓ All models downloaded successfully')
+"
 
       - name: Setup Cloudflare Tunnel
         run: |
@@ -240,7 +270,7 @@ jobs:
 
             if [ "$SERVER_STATUS" != "running" ]; then
               echo "Server died, restarting..."
-              python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
+              USE_HF_MODELS=true python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
               echo $! > server.pid
             fi
 
