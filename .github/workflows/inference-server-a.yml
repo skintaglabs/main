@@ -38,6 +38,31 @@ jobs:
           echo "hash=$FIRST_COMMIT" >> $GITHUB_OUTPUT
           echo "First commit: $FIRST_COMMIT"
 
+      - name: Get duration from git notes or input
+        id: get_duration
+        run: |
+          git fetch origin refs/notes/config:refs/notes/config 2>/dev/null || true
+          STORED_DURATION=$(git notes --ref=config show HEAD 2>/dev/null | grep "duration_hours:" | cut -d: -f2 | tr -d ' ' || echo "")
+
+          if [ -n "${{ github.event.inputs.duration_hours }}" ]; then
+            DURATION="${{ github.event.inputs.duration_hours }}"
+          elif [ -n "$STORED_DURATION" ]; then
+            DURATION="$STORED_DURATION"
+          else
+            DURATION="5"
+          fi
+
+          echo "duration_hours=$DURATION" >> $GITHUB_OUTPUT
+          echo "Using duration: ${DURATION}h"
+
+      - name: Store duration in git notes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin refs/notes/config:refs/notes/config 2>/dev/null || true
+          git notes --ref=config add -f -m "duration_hours:${{ steps.get_duration.outputs.duration_hours }}" HEAD
+          git push origin refs/notes/config
+
       - name: Find previous workflow
         id: find_previous
         env:
@@ -195,7 +220,7 @@ jobs:
           }
           trap cleanup SIGTERM SIGINT
 
-          DURATION_HOURS="${{ github.event.inputs.duration_hours || '5' }}"
+          DURATION_HOURS="${{ steps.get_duration.outputs.duration_hours }}"
           DURATION=$(awk "BEGIN {printf \"%.0f\", $DURATION_HOURS * 3600}")
           RESTART_THRESHOLD=$((DURATION - 360))
           START_TIME=$(date +%s)
@@ -252,8 +277,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run inference-server-b.yml \
-            --raw-field duration_hours="${{ github.event.inputs.duration_hours || '5' }}"
+          gh workflow run inference-server-b.yml
 
       - name: Show logs on failure
         if: failure()
