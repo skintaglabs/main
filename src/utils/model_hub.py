@@ -107,10 +107,10 @@ def get_model_config():
     """
     return {
         "repo_id": os.getenv("HF_REPO_ID", "skintaglabs/siglip-skin-lesion-classifier"),
-        "revision": os.getenv("HF_REVISION", "v2-field-augmented"),
+        "revision": os.getenv("HF_REVISION"),
         "classifier_filename": os.getenv("HF_CLASSIFIER_FILE", "Misc/classifier_deep_mlp.pkl"),
         "condition_classifier_filename": os.getenv(
             "HF_CONDITION_FILE",
-            "classifiers/xgboost_condition.pkl",
+            "Misc/classifier_condition.pkl",
         ),
     }

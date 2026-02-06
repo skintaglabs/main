@@ -138,9 +138,8 @@ jobs:
               print(f'✓ Downloaded condition classifier to {cond_path}')
           except Exception as e:
               print(f'Warning: Condition classifier download failed: {e}')
-              raise
 
-          print('✓ All models downloaded successfully')
+          print('✓ Models downloaded successfully')
           PYEOF
 
       - name: Setup Cloudflare Tunnel

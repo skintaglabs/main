@@ -592,13 +592,13 @@ class EndToEndClassifier:
 
         if is_v2:
             from transformers import AutoImageProcessor
-            obj.processor = AutoImageProcessor.from_pretrained(config["model_name"])
+            obj.processor = AutoImageProcessor.from_pretrained(obj.model_name)
             obj.model = FineTunableSigLIP(
-                model_name=config["model_name"],
-                hidden_dim=config.get("hidden_dim", 512),
-                n_classes=config.get("n_classes", 2),
-                dropout=config.get("dropout", 0.3),
-                unfreeze_layers=config.get("unfreeze_layers", 4),
+                model_name=obj.model_name,
+                hidden_dim=obj.hidden_dim,
+                n_classes=obj.n_classes,
+                dropout=obj.dropout,
+                unfreeze_layers=obj.unfreeze_layers,
             ).to(device)
             state = torch.load(save_dir / "siglip_finetuned.pt", map_location=device)
             obj.model.load_state_dict(state)
