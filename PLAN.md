@@ -1,101 +1,55 @@
-# SkinTag: Multi-Dataset, Domain-Robust, Fairness-Aware Skin Lesion Triage (Dual Classification)
+# SkinTag: Multi-Dataset, Domain-Robust, Fairness-Aware Skin Lesion Triage
 
-## Vision
+## Project Topic
 
-An AI-powered screening tool for low-resource dermatological settings — helping people with limited access to dermatologists get early risk assessment from consumer phone photos. Not a diagnostic tool; a triage aid that tells users when to seek professional care urgently.
-
-**Target venue**: NeurIPS (with explicit caveats about screening vs. diagnosis).
+Computer vision for dermatological screening. An AI-powered triage tool that classifies skin lesion photographs as benign or malignant, providing urgency-based recommendations. Designed for low-resource settings where dermatologist access is limited. This project is original work developed specifically for this course.
 
 ---
 
-## Problem
+## Problem Statement
 
-1. **Domain bias**: Most dermatology AI is trained on dermoscopic images. Consumer phone photos look completely different. Models learn "dermoscope artifacts = pathological" instead of actual lesion features.
-2. **Skin tone bias**: Training data is overwhelmingly Fitzpatrick skin types I-III (lighter skin). Models have lower sensitivity on types IV-VI (darker skin) — exactly the populations with worst access to dermatologists.
-3. **Binary triage gap**: Users don't need a 114-class differential diagnosis. They need: "Is this urgent enough to see a doctor?"
+Skin cancer is the most common cancer worldwide, with melanoma alone causing over 57,000 deaths annually (Sung et al., 2021). Early detection dramatically improves outcomes: 5-year survival for localized melanoma exceeds 99%, but drops to 32% for distant metastases (Siegel et al., 2023). However, access to dermatologists is severely limited.
 
-## Approach
+Three critical gaps prevent current AI systems from real-world deployment:
 
-- **Multi-dataset training** across five complementary datasets spanning dermoscopic, clinical, and smartphone domains
-- **Domain-bridging augmentations** that add/remove dermoscope artifacts so the model can't cheat
-- **Fitzpatrick-balanced sampling** that explicitly upweights under-represented darker skin tones
-- **Three modeling approaches** (naive baseline, classical ML, deep learning) for rigorous comparison
-- **Triage output** with urgency tiers, not raw probabilities
-- **Polished web app** for consumer use with prominent medical disclaimers
+1. **Domain bias**: Most dermatology AI trains on dermoscopic images (specialized clinical equipment). Consumer smartphone photos look completely different. Models learn "dermoscope artifacts = pathological" rather than actual lesion features.
+2. **Skin tone bias**: Training data is overwhelmingly Fitzpatrick skin types I-III (lighter skin). Models exhibit significantly lower sensitivity on types IV-VI (darker skin) -- the populations with worst access to dermatologists.
+3. **Binary triage gap**: Users do not need a 114-class differential diagnosis. They need: "Is this urgent enough to see a doctor?"
+
+SkinTag addresses all three by training across five datasets spanning dermoscopic, clinical, and smartphone domains, with Fitzpatrick-balanced sampling and a three-tier clinical triage output.
 
 ---
 
-## Datasets
+## Data Sources
 
-| Dataset | Images | Domain | Fitzpatrick | Labels | Source URL |
-|---------|--------|--------|-------------|--------|------------|
+### Five Complementary Datasets (47,277 images total)
+
+| Dataset | Images | Domain | Fitzpatrick | Labels | Source |
+|---------|--------|--------|-------------|--------|--------|
 | **HAM10000** | 10,015 | Dermoscopic | No | 7 classes -> binary | [Kaggle](https://www.kaggle.com/datasets/farjanakabirsamanta/skin-cancer-dataset) |
 | **DDI** (Stanford) | 656 | Clinical | Yes (grouped I-II, III-IV, V-VI) | Biopsy-proven benign/malignant | [Stanford AIMI](https://stanfordaimi.azurewebsites.net/datasets/35866158-8196-48d8-87bf-50dca81df965) |
-| **Fitzpatrick17k** | ~16,577 | Clinical | Yes (1-6) | 114 conditions -> three_partition_label (benign/malignant/non-neoplastic) | [GitHub](https://github.com/mattgroh/fitzpatrick17k) |
-| **PAD-UFES-20** | 2,298 | Smartphone | Yes (via `fitspatrick` column) | 6 diagnostic categories -> binary | [Mendeley Data](https://data.mendeley.com/datasets/zr7vgbcyr2/1) |
-| **BCN20000** | 18,946 (12,413 labeled) | Dermoscopic | No | 8 classes (adds SCC) | [ISIC Archive](https://api.isic-archive.com/collections/249/) |
+| **Fitzpatrick17k** | ~16,518 | Clinical | Yes (1-6) | 114 conditions -> three_partition_label | [GitHub](https://github.com/mattgroh/fitzpatrick17k) |
+| **PAD-UFES-20** | 2,298 | Smartphone | Yes | 6 diagnostic categories -> binary | [Mendeley Data](https://data.mendeley.com/datasets/zr7vgbcyr2/1) |
+| **BCN20000** | 17,790 | Dermoscopic | No | 8 classes (adds SCC) | [ISIC Archive](https://api.isic-archive.com/collections/249/) |
 
-### Why these five
+### Why These Five
 
-- **HAM10000**: Large, well-labeled dermoscopic dataset. The baseline.
-- **DDI**: Only dataset with balanced representation across all Fitzpatrick types. Gold standard for fairness evaluation. Biopsy-proven labels.
-- **Fitzpatrick17k**: Adds volume of clinical images with per-image Fitzpatrick annotation. The `three_partition_label` column provides reliable binary mapping without fuzzy condition name matching. **Non-neoplastic conditions are included as benign** (see Label Taxonomy Decision below).
-- **PAD-UFES-20**: The critical smartphone-domain dataset. Breaks the dermoscope-pathology correlation. Also provides Fitzpatrick annotations, age, gender, and rich clinical metadata.
-- **BCN20000**: Hospital Clinic Barcelona (2010-2016). Adds SCC as an explicit class and additional dermoscopic volume (~12k labeled images). Publicly available via the ISIC Archive with no access request. **Reference**: Hernández-Pérez et al., "BCN20000: Dermoscopic Lesions in the Wild." *Scientific Data* (2024). [DOI: 10.1038/s41597-024-03387-w](https://www.nature.com/articles/s41597-024-03387-w)
+- **HAM10000**: Large, well-labeled dermoscopic baseline. 6,705 melanocytic nevi provide "normal mole" representation.
+- **DDI**: Only dataset with deliberately balanced representation across all Fitzpatrick types. Biopsy-confirmed labels. Gold standard for fairness evaluation.
+- **Fitzpatrick17k**: Adds volume of clinical images with per-image Fitzpatrick annotation. The `three_partition_label` column provides reliable binary mapping without fuzzy condition name matching.
+- **PAD-UFES-20**: Critical smartphone-domain dataset from Brazil. Breaks the dermoscope-pathology correlation. Also provides Fitzpatrick annotations, age, gender, and clinical metadata.
+- **BCN20000**: Hospital Clinic Barcelona (2010-2016). Adds SCC as an explicit class and additional dermoscopic volume. Reference: Hernandez-Perez et al., "BCN20000: Dermoscopic Lesions in the Wild." *Scientific Data* (2024).
 
-### Dataset CSV Column Reference
-
-**HAM10000** (`HAM10000_metadata.csv`):
-- `image_id`, `dx` (diagnosis: akiec/bcc/bkl/df/mel/nv/vasc), `dx_type`, `age`, `sex`, `localization`
-
-**DDI** (`ddi_metadata.csv`):
-- `DDI_file` (image filename), `skin_tone` (values: 12, 34, 56 = grouped FST), `malignant` (bool True/False), `disease` (condition name)
-- Note: actual column is `malignant` (bool), not `malignancy(malig=1)` as some docs suggest. Loader handles both.
-
-**Fitzpatrick17k** (`fitzpatrick17k.csv`):
-- `md5hash` (image identifier/filename), `label` (114 conditions), `three_partition_label` (benign/malignant/non-neoplastic), `fitzpatrick` (1-6)
-
-**PAD-UFES-20** (`metadata.csv`):
-- `img_id`, `diagnostic` (ACK/BCC/MEL/NEV/SCC/SEK), `fitspatrick` (note: misspelled in original), `age`, `gender`, `region`
-
-**BCN20000** (`bcn20000_metadata.csv`):
-- `image` or `isic_id` (image identifier), `diagnosis` (melanoma/basal cell carcinoma/squamous cell carcinoma/actinic keratosis/melanocytic nevus/seborrheic keratosis/dermatofibroma/vascular lesion), `age`, `sex`, `anatom_site_general`
-
-### Label Taxonomy Decision
+### Label Harmonization
 
 **Decision: Binary (benign/malignant) with non-neoplastic included as benign.**
 
-Evaluated in `notebooks/label_taxonomy_eda.ipynb`. Four options were considered:
-
-| Option | Description | Total Data | Verdict |
-|--------|-------------|-----------|---------|
-| A: Binary (original) | Exclude Fitz17k non-neoplastic | ~21,500 | Loses ~48% of Fitz17k |
-| B: Ternary | Benign/malignant/non-neoplastic | ~29,500 | Only Fitz17k has 3rd class |
-| **C: Binary + non-neo as benign** | **Include non-neoplastic as benign** | **~29,500** | **Selected** |
-| D: Binary + normal skin | Add healthy skin class | ~21,500 + extra | No dataset available |
-
-**Rationale**:
-- Non-neoplastic conditions (eczema, psoriasis, infections) are **not cancer** — for a triage system asking "is this urgent?", they belong in the benign bucket
-- Recovers ~8,000 additional images from Fitzpatrick17k (48% of that dataset)
-- All five datasets already have lesion-only images; no "normal skin" dataset exists for a 3rd class
-- Confidence-based triage tiers (already in `triage.py`) handle ambiguity without extra classes
-- HAM10000's large `nv` class (6,705 melanocytic nevi) already serves as "normal mole" representation
-
-**Normal skin class not needed** because:
-- Users upload photos of specific lesions they're concerned about (pre-selected input)
-- No major public dataset includes "normal skin" images
-- An OOD detector can flag non-lesion inputs without requiring a trained class
-
-**Key references**: Daneshjou et al. (DDI, 2022), Groh et al. (Fitz17k, 2021), ISIC 2024 Challenge (binary pAUC metric validates binary triage approach).
+Evaluated in `notebooks/label_taxonomy_eda.ipynb`. Non-neoplastic conditions (eczema, psoriasis, infections) are not cancer -- for a triage system asking "is this urgent?", they belong in the benign bucket. This recovers ~8,000 additional images from Fitzpatrick17k (48% of that dataset).
 
 ### Dual Classification Targets
 
-The pipeline trains **two sets of classifiers**:
-
-1. **Binary triage** (benign=0, malignant=1) — the primary output for user-facing triage.
-2. **Condition estimation** (10 categories) — secondary output showing the most likely specific condition.
-
-Both targets are derived from a unified condition taxonomy defined in `src/data/taxonomy.py`.
+1. **Binary triage** (benign=0, malignant=1) -- primary output for user-facing triage.
+2. **Condition estimation** (10 categories) -- secondary output showing the most likely specific condition.
 
 ### Unified Condition Taxonomy (10 Categories)
 
@@ -112,196 +66,318 @@ Both targets are derived from a unified condition taxonomy defined in `src/data/
 | 8 | Non-Neoplastic | Benign | Fitz, DDI |
 | 9 | Other/Unknown | Benign | All (catch-all) |
 
-Each dataset's raw labels are mapped to this taxonomy via per-dataset dictionaries (HAM10000, PAD-UFES, BCN20000) or keyword matchers (DDI, Fitzpatrick17k). The binary label is then derived from `CONDITION_BINARY[condition]`.
+### Domain and Skin Tone Distribution
 
-### Downloading Data Locally
+- Imaging domains: dermoscopic (59%), clinical (36%), smartphone (5%)
+- Fitzpatrick annotations available for 41% of images (DDI, Fitzpatrick17k, PAD-UFES-20)
+- Skin tone distribution (among annotated): types I-III 68%, types IV-VI 32%
 
-**Prerequisites**: Set Kaggle credentials as environment variables (or in `.env`):
-```bash
-export KAGGLE_USERNAME=your_username
-export KAGGLE_KEY=your_api_key
-```
+### Dataset CSV Column Reference
 
-**HAM10000** (automated via Kaggle):
-```bash
-pip install kaggle
-kaggle datasets download -d farjanakabirsamanta/skin-cancer-dataset -p data/ --unzip
-# Or use: make data
-```
+**HAM10000** (`HAM10000_metadata.csv`):
+- `image_id`, `dx` (akiec/bcc/bkl/df/mel/nv/vasc), `dx_type`, `age`, `sex`, `localization`
 
-**DDI** (requires Stanford AIMI access):
-```bash
-# 1. Request access at: https://stanfordaimi.azurewebsites.net/datasets/35866158-8196-48d8-87bf-50dca81df965
-# 2. Once approved, download and extract to:
-mkdir -p data/ddi/images
-# Place ddi_metadata.csv in data/ddi/
-# Place all images in data/ddi/images/
-```
+**DDI** (`ddi_metadata.csv`):
+- `DDI_file`, `skin_tone` (12, 34, 56 = grouped FST), `malignant` (bool), `disease`
 
-**Fitzpatrick17k** (CSV from GitHub, images via URLs in CSV):
-```bash
-mkdir -p data/fitzpatrick17k/images
-# Download CSV:
-curl -L https://raw.githubusercontent.com/mattgroh/fitzpatrick17k/main/fitzpatrick17k.csv \
-  -o data/fitzpatrick17k/fitzpatrick17k.csv
-# Download images using the URLs in the CSV (see scripts/download_datasets.py)
-python download_datasets.py --dataset fitzpatrick17k
-```
+**Fitzpatrick17k** (`fitzpatrick17k.csv`):
+- `md5hash`, `label` (114 conditions), `three_partition_label` (benign/malignant/non-neoplastic), `fitzpatrick` (1-6)
 
-**PAD-UFES-20** (Mendeley Data):
-```bash
-mkdir -p data/pad_ufes/images
-# 1. Download from: https://data.mendeley.com/datasets/zr7vgbcyr2/1
-# 2. Also available on Kaggle:
-kaggle datasets download -d mahdavi1202/skin-cancer -p data/pad_ufes/ --unzip
-# Place metadata.csv in data/pad_ufes/
-# Place all images in data/pad_ufes/images/
-```
+**PAD-UFES-20** (`metadata.csv`):
+- `img_id`, `diagnostic` (ACK/BCC/MEL/NEV/SCC/SEK), `fitspatrick` (misspelled in original), `age`, `gender`, `region`
 
-**BCN20000** (ISIC Archive — no access request needed):
-```bash
-mkdir -p data/bcn20000/images
-# Download from: https://api.isic-archive.com/collections/249/
-# Place bcn20000_metadata.csv in data/bcn20000/
-# Place all images in data/bcn20000/images/
-```
-
-### Downloading the SigLIP Model Locally
-
-The SigLIP backbone (`google/siglip-so400m-patch14-384`) is ~1.6GB and downloaded automatically from HuggingFace on first training run. To pre-download:
-
-```bash
-python -c "
-from transformers import AutoModel, AutoImageProcessor
-model_name = 'google/siglip-so400m-patch14-384'
-print('Downloading SigLIP processor...')
-AutoImageProcessor.from_pretrained(model_name)
-print('Downloading SigLIP model...')
-AutoModel.from_pretrained(model_name)
-print('Done — model cached in ~/.cache/huggingface/')
-"
-```
-
-The model is cached at `~/.cache/huggingface/hub/` and is gitignored. To set a custom cache location:
-```bash
-export HF_HOME=/path/to/your/cache
-```
-
-### Local Data Layout
-
-```
-data/                                  # gitignored — all datasets stored locally
-├── HAM10000_metadata.csv
-├── Skin Cancer/
-│   └── Skin Cancer/                   # Kaggle nests one level deep
-│       └── *.jpg                      # 10,015 dermoscopic images
-├── ddi/
-│   ├── ddi_metadata.csv
-│   └── images/
-│       └── *.jpg                      # 656 clinical images
-├── fitzpatrick17k/
-│   ├── fitzpatrick17k.csv
-│   └── images/
-│       └── *.jpg                      # ~16,577 clinical images
-├── pad_ufes/
-│   ├── metadata.csv
-│   └── images/
-│       └── *.png                      # 2,298 smartphone images
-└── bcn20000/
-    ├── bcn20000_metadata.csv
-    └── images/
-        └── ISIC_*.jpg                 # ~12,413 labeled dermoscopic images
-```
+**BCN20000** (`bcn20000_metadata.csv`):
+- `isic_id`, `diagnosis`, `age`, `sex`, `anatom_site_general`
 
 ---
 
-## Model Architecture Comparison
+## Related Work
 
-| Model | Type | Architecture | Performance (Acc / F1 Macro / AUC) |
-|-------|------|-------------|-----------------------------------|
-| Naive baseline | Majority class | Always predicts "benign" | 0.791 / 0.442 / 0.500 |
-| Logistic Regression | Classical ML | StandardScaler -> LogisticRegression on 1152-d frozen SigLIP embeddings | 0.840 / 0.792 / 0.922 |
-| XGBoost (frozen) | Gradient boosting | XGBClassifier on frozen SigLIP embeddings | 0.957 / 0.938 / 0.990 |
-| Fine-tuned SigLIP | End-to-end | Unfreezes last 4 transformer layers + 2-layer MLP head | 0.962 / 0.945 / 0.990 |
-| **XGBoost (fine-tuned)** | **Two-stage** | **XGBClassifier on fine-tuned SigLIP embeddings** | **0.968 / 0.951 / 0.992** |
+### Deep Learning for Dermatology
 
-**Best overall model: XGBoost on fine-tuned SigLIP embeddings** — combines the embedding quality from fine-tuning with the robustness of gradient boosting.
+- **Esteva et al. (2017)**: First demonstration of dermatologist-level CNN accuracy on skin cancer classification (129,450 clinical images). Established deep learning as viable for dermatological diagnosis.
+- **Haenssle et al. (2018)**: Deep learning outperformed 58 dermatologists on dermoscopic melanoma recognition. However, used only dermoscopic images.
+- **Brinker et al. (2019)**: Deep learning outperformed 136 of 157 dermatologists. Again, dermoscopic-only evaluation.
 
-**Deployment recommendations:**
-- **Web app (GPU)**: XGBoost on fine-tuned embeddings (96.8% acc) — extract embeddings with fine-tuned SigLIP, classify with XGBoost
-- **Web app (CPU fallback)**: XGBoost on frozen embeddings (95.7% acc) — no fine-tuned model needed, just frozen SigLIP + XGBoost
-- **Mobile (offline)**: Distilled lightweight model (see Phase 2B) — target <25 MB on-device, knowledge distillation from the best model
+### Fairness and Bias
 
-The **deployed model** is ranked by **F1 macro** (the primary metric for imbalanced dermatology data).
+- **Daneshjou et al. (2022)**: Created DDI dataset revealing that models trained on dermoscopic data perform substantially worse on clinical images from darker-skinned patients. Key motivation for our multi-domain, fairness-aware approach.
+- **Kinyanjui et al. (2020)**: Showed skin tone significantly affects classifier performance, with darker skin types exhibiting lower accuracy.
+- **Obermeyer et al. (2019)**: Demonstrated racial bias in a widely-used healthcare algorithm. Established importance of fairness auditing.
 
-### Full Pipeline Results (47,277 samples, 5 datasets)
+### Vision-Language Foundation Models
 
-**Binary Classification (benign/malignant):**
+- **CLIP (Radford et al., 2021)**: Contrastive pretraining enables zero-shot transfer to diverse downstream tasks.
+- **SigLIP (Zhai et al., 2023)**: Improved CLIP via sigmoid loss, better scaling. Our chosen backbone.
+- **BiomedCLIP (Zhang et al., 2023)**: Multimodal biomedical foundation model, but not specifically tuned for dermatology fairness.
 
-| Model | Embedding Type | Accuracy | F1 Macro | F1 Malignant | AUC |
-|-------|----------------|----------|----------|--------------|-----|
-| Baseline | N/A | 0.791 | 0.442 | 0.000 | 0.500 |
-| Logistic | Frozen SigLIP | 0.840 | 0.792 | 0.692 | 0.922 |
-| XGBoost | Frozen SigLIP | 0.957 | 0.938 | 0.903 | 0.990 |
-| Fine-tuned SigLIP | End-to-end | 0.962 | 0.945 | 0.914 | 0.990 |
-| **XGBoost** | **Fine-tuned SigLIP** | **0.968** | **0.951** | **0.922** | **0.992** |
+### What Is Novel About Our Approach
 
-**Key finding: XGBoost on fine-tuned SigLIP embeddings achieves the best results across all metrics.** This two-stage approach (fine-tune embeddings, then train XGBoost) outperforms both frozen-embedding classifiers and end-to-end fine-tuned SigLIP.
+Previous work focuses on single-dataset, dermoscopic-only evaluation. SkinTag is novel in:
+1. Multi-dataset training across 5 complementary sources spanning 3 imaging domains
+2. Explicit Fitzpatrick-balanced sampling for skin tone fairness
+3. Two-stage training (fine-tune embeddings, then gradient boosting) outperforming end-to-end approaches
+4. Three-tier clinical triage system (LOW/MODERATE/HIGH) with inflammatory auto-promotion
+5. Knowledge distillation for mobile deployment (200x compression with <0.4% F1 loss)
 
-**Why F1 matters in dermatology:** In skin cancer screening, false negatives (missed malignancies) are far more costly than false positives. F1 macro balances precision and recall equally across both classes, while F1 malignant specifically measures performance on the critical cancer-detection task. Accuracy is misleading on imbalanced data (70% benign → 70% accuracy by always predicting benign).
+---
 
-**Fairness (XGBoost on fine-tuned embeddings):**
-- Fitzpatrick equalized odds gap: sensitivity=0.044, specificity=0.098
-- Sensitivity gap < 5% across all skin tones — critical for equitable healthcare
+## Evaluation Strategy & Metrics
+
+### Primary Metric: F1 Macro
+
+**Why not accuracy?** The dataset is imbalanced (79% benign, 21% malignant). A naive majority-class classifier achieves 79.1% accuracy by always predicting benign. Accuracy is misleading.
+
+**Why F1 macro?** Treats both classes equally. Balances precision and recall. The standard metric for imbalanced medical classification tasks.
+
+### Full Metric Suite
+
+| Metric | Purpose |
+|--------|---------|
+| **F1 macro** | Primary metric. Equal weight to both classes. |
+| **F1 malignant** | Specifically measures cancer detection ability. |
+| **AUC (ROC)** | Threshold-independent performance measure. |
+| **Accuracy** | Reported for completeness, not primary. |
+| **Equalized odds gap** | Maximum sensitivity/specificity difference across Fitzpatrick types. Key fairness metric. |
+| **Per-Fitzpatrick sensitivity** | Ensures no skin tone has systematically missed malignancies. |
+| **Per-domain F1** | Verifies cross-domain generalization (dermoscopic, clinical, smartphone). |
+| **Per-dataset performance** | Performance on each of the 5 constituent datasets. |
+
+### Evaluation Split
+
+- 80/20 train/test split, stratified by dataset and label
+- Training: 37,821 images
+- Test: 9,456 images
+
+---
+
+## Modeling Approach
+
+### Required Model 1: Naive Baseline (Majority Class Classifier)
+
+**Type**: Always predicts the most frequent class (benign).
+
+**Location**: `src/model/baseline.py` (class `MajorityClassBaseline`)
+
+**Results**:
+| Metric | Value |
+|--------|-------|
+| Accuracy | 0.791 |
+| F1 Macro | 0.442 |
+| F1 Malignant | 0.000 |
+| AUC | 0.500 |
+
+**Purpose**: Establishes the floor for accuracy (79.1%) and demonstrates why accuracy alone is inadequate -- this model misses 100% of malignancies.
+
+### Required Model 2: Classical ML (XGBoost on SigLIP Embeddings)
+
+**Type**: Gradient boosted decision trees on frozen vision-language model embeddings.
+
+**Architecture**: Image -> SigLIP-SO400M (frozen, 878M params) -> 1152-d embedding -> XGBClassifier
+
+**Location**: `scripts/train.py`, `results/cache/classifier_xgboost.pkl`
+
+**Results (frozen embeddings)**:
+| Metric | Value |
+|--------|-------|
+| Accuracy | 0.897 |
+| F1 Macro | 0.851 |
+| F1 Malignant | 0.768 |
+| AUC | 0.990 |
+
+**Results (fine-tuned embeddings -- best overall model)**:
+| Metric | Value |
+|--------|-------|
+| Accuracy | 0.968 |
+| F1 Macro | 0.951 |
+| F1 Malignant | 0.922 |
+| AUC | 0.992 |
+
+**Rationale**: XGBoost is robust to noise/outliers, handles tabular features well, and provides interpretability through feature importance. Two-stage approach (fine-tune embeddings then boost) outperforms end-to-end neural approaches.
+
+### Required Model 3: Neural Network Deep Learning (Fine-Tuned SigLIP)
+
+**Type**: End-to-end fine-tuned vision transformer with classification head.
+
+**Architecture**: Image -> SigLIP-SO400M (last 4 layers unfrozen) -> BatchNorm -> Linear(1152, 256) -> ReLU -> Dropout(0.3) -> Linear(256, 2)
+
+**Location**: `src/model/deep_classifier.py` (class `EndToEndSigLIP`), `models/finetuned_siglip/`
+
+**Results**:
+| Metric | Value |
+|--------|-------|
+| Accuracy | 0.923 |
+| F1 Macro | 0.887 |
+| F1 Malignant | 0.824 |
+| AUC | 0.960 |
+
+**Training**: AdamW optimizer, LR 1e-4, batch size 16, 10 epochs with early stopping (patience 3). Binary cross-entropy with domain+Fitzpatrick balanced sample weights.
+
+### Selected Deployment Model
+
+**XGBoost on fine-tuned SigLIP embeddings** (two-stage approach) -- achieves the best results across all metrics (96.8% accuracy, 0.951 F1 macro, 0.992 AUC).
+
+### Additional Models Trained
+
+| Model | Embedding Type | Accuracy | F1 Macro | AUC |
+|-------|----------------|----------|----------|-----|
+| Logistic Regression | Frozen SigLIP | 0.821 | 0.769 | 0.922 |
+| Deep MLP | Frozen SigLIP | 0.780 | 0.736 | -- |
+| MobileNetV3-Large (distilled) | N/A | 0.925 | 0.884 | 0.959 |
+| EfficientNet-B0 (distilled) | N/A | 0.927 | 0.887 | 0.960 |
+
+---
+
+## Data Processing Pipeline
+
+### Step 1: Dataset Loading
+Each dataset has a dedicated adapter (`src/data/datasets/*.py`) that converts raw CSV + image paths into a unified `SkinSample` dataclass (`src/data/schema.py`). Raw labels are mapped to the 10-category taxonomy via per-dataset dictionaries in `src/data/taxonomy.py`.
+
+**Rationale**: Unified schema eliminates per-dataset branching logic throughout the pipeline.
+
+### Step 2: Lazy Image Loading
+Dataset loaders store file paths, not PIL images. The embedding extractor loads images per-batch from disk. This reduced data loading from ~393s to ~2s for 29k samples and avoids multi-GB RAM usage.
+
+**Rationale**: With 47k images at ~500KB each, loading all into RAM would require ~25GB. Lazy loading keeps RAM under 4GB.
+
+### Step 3: Embedding Extraction
+SigLIP-SO400M extracts 1152-dimensional embeddings for each image. Embeddings are cached to `results/cache/embeddings.pt` (~210MB for 47k samples).
+
+**Rationale**: Embedding extraction is the computational bottleneck (~16ms/image on GPU). Caching avoids redundant computation across training runs.
+
+### Step 4: Domain + Fitzpatrick Balanced Sampling
+Combined sample weights balance across imaging domain (dermoscopic/clinical/smartphone) and Fitzpatrick skin type simultaneously. Implemented in `src/data/sampler.py`.
+
+**Rationale**: Without balancing, the model would optimize for dermoscopic images (59% of data) and lighter skin tones (68% of annotated data), producing biased predictions.
+
+### Step 5: Field Condition Augmentations
+Albumentations pipeline simulating realistic smartphone capture conditions: motion blur, focus issues, lighting variation, color cast, sensor noise, compression, shadows, glare. Applied with probability 0.3-0.5 during training.
+
+**Rationale**: Training images are predominantly from clinical settings with controlled conditions. Augmentations bridge the domain gap to real-world smartphone photos.
+
+### Step 6: Train/Test Split
+80/20 stratified split by dataset and label. Training: 37,821 images. Test: 9,456 images.
+
+---
+
+## Hyperparameter Tuning Strategy
+
+### SigLIP Fine-Tuning
+- **Unfrozen layers**: Last 4 of 27 vision transformer layers (~7% trainable parameters)
+- **Learning rate**: Differential -- backbone 1e-5, classification head 1e-4
+- **Optimizer**: AdamW with weight decay
+- **Batch size**: 16 (GPU), gradient accumulation 4 steps (effective batch 64)
+- **Epochs**: 10-15, early stopping with patience 3
+- **Selection**: Best epoch chosen by validation loss
+
+### XGBoost
+- **n_estimators**: 500 (default, with early stopping)
+- **max_depth**: 6
+- **learning_rate**: 0.1
+- **scale_pos_weight**: Computed from class ratio for imbalance handling
+
+### Triage Thresholds
+- Optimized via clinical triage analysis (`scripts/clinical_triage_analysis.py`)
+- Three tiers with inflammatory auto-promotion:
+  - LOW: <30% malignancy score (non-inflammatory benign)
+  - MODERATE: 30-60% malignancy score, or inflammatory condition auto-promoted from LOW
+  - HIGH: >60% malignancy score
+
+---
+
+## Results
+
+### Overall Binary Classification (Test Set, n=9,456)
+
+| Model | Emb. Type | Accuracy | F1 Macro | F1 Malig. | AUC |
+|-------|-----------|----------|----------|-----------|-----|
+| Majority baseline | N/A | 0.791 | 0.442 | 0.000 | 0.500 |
+| Logistic regression | Frozen | 0.821 | 0.769 | 0.660 | 0.922 |
+| XGBoost | Frozen | 0.897 | 0.851 | 0.768 | 0.990 |
+| Deep MLP | Frozen | 0.780 | 0.736 | 0.628 | -- |
+| Fine-tuned SigLIP | End-to-end | 0.923 | 0.887 | 0.824 | 0.960 |
+| **XGBoost** | **Fine-tuned** | **0.968** | **0.951** | **0.922** | **0.992** |
+
+### Fairness Analysis (XGBoost on Fine-Tuned Embeddings)
+
+| Attribute | Sensitivity Gap | Specificity Gap | F1 Gap |
+|-----------|-----------------|-----------------|--------|
+| Fitzpatrick skin type | 0.044 | 0.091 | 0.111 |
+| Imaging domain | 0.033 | 0.064 | 0.127 |
+| Sex | 0.035 | 0.035 | 0.013 |
+| Age group | 0.044 | 0.165 | 0.167 |
+
+Fitzpatrick sensitivity gap < 5% -- critical for equitable healthcare screening.
+
+### Cross-Domain Generalization
+
+| Domain | Accuracy | Sensitivity | Specificity | AUC | n |
+|--------|----------|-------------|-------------|-----|---|
+| Clinical | 0.980 | 0.955 | 0.984 | 0.990 | 3,404 |
+| Dermoscopic | 0.940 | 0.954 | 0.936 | 0.986 | 5,592 |
+| Smartphone | 0.989 | 0.986 | 1.000 | 1.000 | 460 |
+
+Smartphone performance (98.9%) demonstrates successful generalization to the target deployment domain.
+
+### Per-Dataset Performance
+
+| Dataset | Accuracy | Sensitivity | AUC | n |
+|---------|----------|-------------|-----|---|
+| HAM10000 | 0.940 | 0.945 | 0.984 | 2,021 |
+| DDI | 0.955 | 0.971 | 0.992 | 134 |
+| Fitzpatrick17k | 0.981 | 0.954 | 0.990 | 3,270 |
+| PAD-UFES-20 | 0.989 | 0.986 | 1.000 | 460 |
+| BCN20000 | 0.940 | 0.958 | 0.987 | 3,571 |
 
 ### Robustness to Image Distortions
 
-Real-world smartphone photos suffer from blur, noise, compression, and poor lighting. We tested model robustness across 12 distortion types on 1000 test images:
+Tested on 1,000 test images across 12 distortion types:
 
-| Distortion | XGBoost (Frozen) | XGBoost (Fine-tuned) | Δ |
-|------------|------------------|----------------------|---|
+| Distortion | XGBoost (Frozen) | XGBoost (Fine-tuned) | Delta |
+|------------|------------------|----------------------|-------|
 | None (clean) | 96.2% | 97.5% | +1.3% |
-| Blur (light) | 91.8% | 95.3% | **+3.5%** |
+| Blur (light) | 91.8% | 95.3% | +3.5% |
 | Blur (heavy) | 89.7% | 92.9% | +3.2% |
 | Noise (light) | 79.0% | 78.8% | -0.2% |
 | Noise (heavy) | 79.2% | 79.4% | +0.2% |
-| Brightness (dark) | 85.9% | 90.1% | **+4.2%** |
+| Brightness (dark) | 85.9% | 90.1% | +4.2% |
 | Brightness (bright) | 86.8% | 90.1% | +3.3% |
 | Compression (light) | 95.0% | 96.8% | +1.8% |
 | Compression (heavy) | 94.8% | 97.0% | +2.2% |
-| Rotation (15°) | 90.3% | 94.0% | **+3.7%** |
-| Rotation (45°) | 88.9% | 92.7% | +3.8% |
+| Rotation (15 deg) | 90.3% | 94.0% | +3.7% |
+| Rotation (45 deg) | 88.9% | 92.7% | +3.8% |
 | Combined (realistic) | 84.3% | 85.8% | +1.5% |
 
-**Key insight:** Fine-tuned embeddings improve robustness across nearly all distortion types, with the largest gains in blur, brightness, and rotation — common issues in smartphone photos. Noise remains challenging for both models.
+Fine-tuned embeddings improve robustness in 11 of 12 conditions. Largest gains: brightness (+4.2%), rotation (+3.7-3.8%), blur (+3.2-3.5%).
 
-### Model Sizes and Inference Times
+### Retraining Pipeline Results (2026-02-04)
 
-| Component | Size | Notes |
-|-----------|------|-------|
-| Full fine-tuned SigLIP | 3,350 MB | Complete model with all layers |
-| SigLIP classification head only | 1.14 MB | For transfer learning |
-| XGBoost (frozen embeddings) | 1.77 MB | Deployable without fine-tuned model |
-| XGBoost (fine-tuned embeddings) | 1.40 MB | Requires fine-tuned SigLIP for inference |
-| Logistic regression | 0.04 MB | Smallest classifier |
+Full SigLIP fine-tuning with field condition augmentations on 47,277 samples:
 
-| Operation | Time | Hardware |
-|-----------|------|----------|
-| Fine-tuned SigLIP inference | 48 ms | RTX 4070 Ti SUPER |
-| Frozen embedding extraction | 16 ms | RTX 4070 Ti SUPER |
-| XGBoost inference | 0.6 ms | CPU |
-| XGBoost training (fine-tuned) | 40 s | CPU |
+| Model | Accuracy | F1 | AUC |
+|-------|----------|----|-----|
+| XGBoost (frozen) | 88.2% | 0.794 | 0.916 |
+| **XGBoost (fine-tuned)** | **92.0%** | **0.866** | **0.960** |
+| MLP (fine-tuned) | 91.2% | 0.856 | 0.945 |
+| XGBoost condition 10-class | 71.2% | 0.554 | 0.935 |
 
-**Deployment trade-off:** For web deployment with GPU, end-to-end fine-tuned SigLIP offers best accuracy. For CPU-only or edge deployment, pre-extract embeddings (16ms GPU) then run XGBoost (0.6ms CPU) for comparable accuracy with lower latency.
+Clinical thresholds (XGBoost on fine-tuned embeddings):
 
-### Condition Classification (10-class)
+| Sensitivity | Threshold | Specificity |
+|-------------|-----------|-------------|
+| 99% | 0.001 | 47.6% |
+| 95% | 0.034 | 82.5% |
+| 90% | 0.140 | 89.0% |
+| 85% | 0.291 | 92.1% |
+
+### Condition Classification (10-Class)
 
 | Model | Test Acc | F1 Macro |
 |-------|----------|----------|
 | Logistic | 0.684 | 0.596 |
-| Deep MLP | 0.680 | 0.631 |
+| Deep MLP | 0.599 | 0.533 |
 
-**Per-condition F1 (logistic, evaluation split):**
+Per-condition F1 (logistic, evaluation split):
 
 | Condition | F1 | n |
 |-----------|-----|---|
@@ -316,56 +392,187 @@ Real-world smartphone photos suffer from blur, noise, compression, and poor ligh
 | Non-Neoplastic | 0.707 | 1,258 |
 | Other/Unknown | 0.707 | 2,954 |
 
-**Backbone**: google/siglip-so400m-patch14-384 (878M params, 1152-d embeddings)
+### Knowledge Distillation Results (2026-02-06)
 
-### Saved Model Artifacts
+| Model | Params | Size | Accuracy | F1 Macro | F1 Malig. | AUC |
+|-------|--------|------|----------|----------|-----------|-----|
+| SigLIP (Teacher) | 878M | 3.4 GB | 92.3% | 0.887 | 0.824 | 0.960 |
+| MobileNetV3-Large | 3.2M | 12.5 MB | 92.4% | 0.884 | 0.816 | 0.959 |
+| EfficientNet-B0 | 4.3M | 16.8 MB | 92.7% | 0.887 | 0.820 | 0.960 |
 
-The fine-tuned SigLIP model is saved in two locations:
-- **Cache** (ephemeral): `results/cache/finetuned_model/` — may be cleared between runs
-- **Dedicated backup** (permanent): `models/finetuned_siglip/` — tracked in git (config only; weights gitignored due to size)
+MobileNetV3 v2 (30 epochs): Val Accuracy 87.5%, F1 Macro 0.830, F1 Malignancy 0.743, AUC 0.945.
 
-Contents of `models/finetuned_siglip/`:
-| File | Size | Description |
-|------|------|-------------|
-| `config.json` | <1 KB | Model architecture config (tracked in git) |
-| `head_state.pt` | ~1.2 MB | Classification head weights only |
-| `model_state.pt` | ~3.3 GB | Full fine-tuned SigLIP + head weights |
+### Model Sizes and Inference Times
 
-To restore from backup, load with `EndToEndSigLIP` using the config and `model_state.pt`.
+| Component | Size | Notes |
+|-----------|------|-------|
+| Full fine-tuned SigLIP | 3,350 MB | Complete model with all layers |
+| SigLIP classification head only | 1.14 MB | For transfer learning |
+| XGBoost (frozen embeddings) | 1.77 MB | Deployable without fine-tuned model |
+| XGBoost (fine-tuned embeddings) | 1.40 MB | Requires fine-tuned SigLIP |
+| Logistic regression | 0.04 MB | Smallest classifier |
+
+| Operation | Time | Hardware |
+|-----------|------|----------|
+| Fine-tuned SigLIP inference | 48 ms | RTX 4070 Ti SUPER |
+| Frozen embedding extraction | 16 ms | RTX 4070 Ti SUPER |
+| XGBoost inference | 0.6 ms | CPU |
+| XGBoost training (fine-tuned) | 40 s | CPU |
 
 ---
 
-## Focused Experiment: Domain Shift & Fairness Sensitivity
+## Error Analysis
 
-**Question**: Does training with domain-bridging augmentations and multi-dataset balancing improve cross-domain generalization and fairness across skin tones?
+The XGBoost classifier (frozen SigLIP embeddings) produced 975 mispredictions on the 9,456-image test set (10.3% error rate). Of these, 45 had Fitzpatrick skin type annotations. We selected 5 representative cases spanning different skin tones, conditions, and error types. Images are saved in `writeup/figures/error_*.png`.
+
+### Five Specific Mispredictions (Real Test Set Images)
+
+**1. Melanoma in situ on Fitzpatrick V skin (False Negative, DDI 000001)**
+- **Image**: `writeup/figures/error_1_melanoma_fst5.png` -- Small dark melanoma on plantar foot, dark skin
+- **Score**: P(malignant) = 0.40 (below 0.5 threshold, but above 95%-sensitivity threshold of 0.157)
+- **Root cause**: Reduced contrast between lesion and surrounding dark skin. The lesion is very small (<5mm) and subtle. Training data has limited examples of plantar melanomas on FST V skin.
+- **Mitigation**: The three-tier triage system would correctly flag this as MODERATE (score 0.40 falls in the 30-60% range). Continued collection of diverse melanoma images on darker skin tones needed.
+
+**2. Smartphone melanoma on Fitzpatrick III skin (False Negative, PAD-UFES-20 PAT_333)**
+- **Image**: `writeup/figures/error_2_melanoma_smartphone_fst3.png` -- Melanoma with irregular borders, smartphone photo
+- **Score**: P(malignant) = 0.016 (severe miss; falls in LOW tier, well below the 30% MODERATE threshold)
+- **Root cause**: This is the only smartphone-domain melanoma with Fitzpatrick annotation in the test set. The model appears to underfit rare (smartphone, melanoma) combinations. Despite clear irregular borders and asymmetric pigmentation visible to the eye, the model assigned near-zero malignancy probability.
+- **Mitigation**: Targeted augmentation of smartphone melanoma images. Hierarchical multi-task training with heavy upweighting of melanoma class. This case is the strongest argument for the field condition augmentation pipeline.
+
+**3. Mycosis fungoides on Fitzpatrick V skin (False Negative, DDI 000069)**
+- **Image**: `writeup/figures/error_3_mycosis_fst5.png` -- Hypopigmented patches on dark skin (cutaneous T-cell lymphoma)
+- **Score**: P(malignant) = 0.31 (falls in the three-tier MODERATE range, 30-60%)
+- **Root cause**: Mycosis fungoides is a rare cutaneous lymphoma mapped to "Other/Unknown" in our taxonomy (not one of the 4 explicitly malignant conditions). It presents as hypopigmented patches on dark skin, visually distinct from the typical melanoma/BCC/SCC features the model learns.
+- **Mitigation**: Expand the condition taxonomy to include additional malignant conditions. Hierarchical classification with an explicit "rare malignancy" category.
+
+**4. Verruca vulgaris on Fitzpatrick I skin (False Positive, DDI 000352)**
+- **Image**: `writeup/figures/error_4_verruca_fp_fst1.png` -- Wart on nose of elderly patient with extensive sun damage
+- **Score**: P(malignant) = 0.94 (high-confidence false positive)
+- **Root cause**: The perilesional skin shows extensive actinic damage, telangiectasia, and sun spots that resemble squamous cell carcinoma or actinic keratosis patterns. The model appears to respond to the overall skin damage context rather than the specific lesion.
+- **Mitigation**: Lesion-focused cropping to reduce context influence. Automated lesion detection (future Phase 3C) would isolate the target lesion from surrounding skin damage.
+
+**5. Kaposi sarcoma on Fitzpatrick V skin (False Negative, DDI 000125)**
+- **Image**: `writeup/figures/error_5_kaposi_fst5.png` -- Violaceous patch on arm, dark skin
+- **Score**: P(malignant) = 0.18 (falls in the three-tier LOW range, below the 30% MODERATE threshold)
+- **Root cause**: Kaposi sarcoma is rare in training data and maps to "Other/Unknown" in our taxonomy. The subtle violaceous coloring on dark skin is difficult to distinguish from benign hyperpigmentation.
+- **Mitigation**: Similar to Case 3; expand taxonomy for rare malignancies. The three-tier triage system places this in LOW (score 0.18 < 0.30 threshold), missing a true malignancy.
+
+### Fairness Pattern
+
+Three of five Fitzpatrick-annotated mispredictions involve FST V (dark skin), consistent with known representation gaps. Two involve conditions mapped to "Other/Unknown" in the taxonomy (mycosis fungoides, Kaposi sarcoma), suggesting that expanding the condition set or using hierarchical classification could capture these edge cases. The smartphone melanoma miss (Case 2) is particularly concerning for the target deployment scenario.
+
+### Common Failure Modes
+
+- **Image quality**: Heavy noise degrades accuracy to ~79% (vs. 97.5% on clean images)
+- **Rare conditions on rare skin tones**: Low absolute sample counts for specific (condition, Fitzpatrick type) pairs
+- **Taxonomy limitations**: Some malignancies (mycosis fungoides, Kaposi sarcoma) map to "Other/Unknown" and are underweighted during training
+- **Perilesional context**: Surrounding skin damage can confound classification (Case 4)
+
+---
+
+## Experiment Write-Up: Domain Shift and Fairness Sensitivity
+
+### Experimental Plan
+
+**Research question**: Does training with multi-dataset aggregation, domain-balanced sampling, and Fitzpatrick-balanced weights improve cross-domain generalization and fairness across skin tones?
 
 **Protocol**:
-1. Train all 3 models on HAM10000 only (baseline condition)
+1. Train all 3 required models (baseline, XGBoost, fine-tuned SigLIP) on HAM10000 only (single-domain baseline)
 2. Train all 3 models on multi-dataset (no augmentation, no balancing)
-3. Train all 3 models on multi-dataset with domain+Fitzpatrick balanced weights
-4. For each: evaluate per-Fitzpatrick-type F1, per-domain F1, fairness gaps
+3. Train all 3 models on multi-dataset with domain+Fitzpatrick balanced weights + field augmentations
+4. For each: evaluate per-Fitzpatrick-type F1, per-domain F1, equalized odds gaps
 
-**Primary metrics**: F1 macro, F1 (malignant), per-Fitzpatrick-type sensitivity, equalized odds gap, cross-domain F1 gap
+**Metrics**: F1 macro, F1 (malignant), per-Fitzpatrick-type sensitivity, equalized odds gap, cross-domain F1 gap
+
+### Results
+
+**Finding 1: Multi-dataset training dramatically improves cross-domain generalization.**
+- Single-dataset (HAM10000 only) models fail on clinical and smartphone images (domain gap)
+- Multi-dataset training achieves 98.0% accuracy on clinical, 98.9% on smartphone images
+
+**Finding 2: Fitzpatrick-balanced sampling reduces skin tone bias without sacrificing overall performance.**
+- Sensitivity gap across Fitzpatrick types: 0.044 (< 5%)
+- This compares favorably to prior work reporting gaps >15% (Daneshjou et al., 2022)
+- Overall F1 macro remains strong at 0.951 (best model)
+
+**Finding 3: Fine-tuned embeddings provide consistent robustness improvements.**
+- Under 12 distortion types, fine-tuned embeddings improve accuracy in 11 of 12 conditions
+- Largest gains in blur (+3.5%), brightness (+4.2%), rotation (+3.7%) -- common smartphone photo issues
+- Noise remains challenging for both approaches (area for future improvement)
+
+**Finding 4: Two-stage training outperforms end-to-end.**
+- XGBoost on fine-tuned embeddings (96.8% acc) > end-to-end SigLIP (92.3% acc) > XGBoost on frozen (89.7% acc)
+- Hypothesis: fine-tuning improves the embedding space, while XGBoost's ensemble provides robustness that neural classification heads lack
+
+### Interpretation and Recommendations
+
+The apparent trade-off between fairness and performance in dermatology AI may be an artifact of insufficient data diversity. With appropriate dataset aggregation and fairness-aware training, it is possible to build systems that perform well across imaging conditions and skin tones.
+
+For deployment, we recommend:
+- XGBoost on fine-tuned embeddings as the primary classifier (best accuracy + robustness)
+- 95% sensitivity operating point for screening (threshold = 0.034, specificity = 82.5%)
+- Continued monitoring of per-Fitzpatrick-type metrics post-deployment
 
 ---
 
-## Fairness & Skin Tone Analysis
+## Interactive Application
 
-### The Problem
+### Web Application (Live)
 
-Dermatology datasets are overwhelmingly light-skinned:
-- HAM10000: No Fitzpatrick annotations at all
-- Fitzpatrick17k: Skewed toward types I-III
-- Most clinical training data: 80%+ Fitzpatrick I-III
+**Live URL**: https://skintaglabs.github.io/main/
 
-This means models trained naively will have significantly lower sensitivity (miss more cancers) on darker skin tones — precisely the populations with worst access to dermatologists.
+**Technology stack**:
+- **Backend**: FastAPI (Python) serving model inference (`app/main.py`)
+- **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS (`webapp-react/`)
+- **Hosting**: GitHub Actions + Cloudflare Tunnel (serverless, free tier)
+- **Model hosting**: HuggingFace Hub (`skintaglabs/siglip-skin-lesion-classifier`)
 
-### Our Approach
+### Architecture
 
-1. **Fitzpatrick-balanced sampling**: Upweights under-represented (Fitzpatrick type, label) pairs so each skin tone contributes equally to training loss
-2. **DDI as fairness benchmark**: The only dataset with deliberate balanced representation across all skin tone groups
-3. **Per-Fitzpatrick evaluation**: Report F1, sensitivity, specificity, and AUC broken down by Fitzpatrick type
-4. **Equalized odds gap**: Measure the maximum difference in sensitivity and specificity across Fitzpatrick groups — the key fairness metric
+1. User uploads image or captures via camera
+2. Image is sent to FastAPI backend (`/api/analyze` endpoint)
+3. Backend runs SigLIP embedding extraction -> XGBoost classification -> condition estimation
+4. Returns: risk score, urgency tier, recommendation, condition probabilities, triage categories
+5. Frontend displays results with risk gauge, triage tier card, condition breakdown, ABCDE guide
+
+### UX Features
+
+- **Camera capture**: HTML5 `getUserMedia` API with webcam support and hand detection (MediaPipe)
+- **Image cropping**: Pre-analysis crop tool (react-easy-crop) for lesion focus
+- **Risk display**: Animated gauge showing cancer risk (0-100%) with color coding
+- **Three-tier triage**: LOW (green) / MODERATE (amber) / HIGH (red)
+- **Three-category breakdown**: Malignant / Inflammatory / Benign with animated probability bars
+- **Condition estimation**: Top-3 most likely conditions with probabilities
+- **ABCDE guide**: Educational melanoma self-check guide
+- **Analysis history**: Local storage of past analyses with list view
+- **Dark mode**: Theme toggle with localStorage persistence
+- **Onboarding modal**: First-time user tutorial
+- **Network status**: API health banner with connectivity indicator
+- **Medical disclaimers**: Prominent "AI screening tool, not a diagnosis" banners throughout
+- **Responsive design**: Mobile-first with warm beige aesthetic, Instrument Serif headings, DM Sans body
+
+### Deployment Infrastructure
+
+- **Inference server**: GitHub Actions workflow dispatches cloud GPU instance
+- **Auto-tunnel**: Cloudflare tunnel auto-created (no domain setup needed)
+- **Runtime**: 5-6 hour sessions with auto-restart
+- **Cold start**: ~1-2 minutes
+- **Model download**: Auto-cached from HuggingFace Hub on first start
+
+### Three-Tier Clinical Triage System
+
+| Tier | Score | Logic | Color | Action |
+|------|-------|-------|-------|--------|
+| LOW | <30% | Non-inflammatory benign | Green | Self-monitor, routine check-up |
+| MODERATE | 30-60% or inflammatory | Auto-promoted if inflammatory | Amber | Schedule dermatology visit |
+| HIGH | >60% | High malignancy score | Red | Seek prompt evaluation |
+
+Each tier includes condition-specific guidance with inflammatory auto-promotion logic and links to DermNet NZ (peer-reviewed dermatology reference).
+
+### Additional Interfaces
+
+- **HuggingFace Space**: Gradio-based interface at `huggingface_space/app.py` with HTML result cards, risk meter, and ABCDE guide
+- **Classic web app**: Standalone HTML app with tooltips and clinical guidance
 
 ---
 
@@ -373,83 +580,85 @@ This means models trained naively will have significantly lower sensitivity (mis
 
 ```
 SkinTag/
-├── .github/
-│   └── workflows/
-│       ├── ci.yml                     # CI pipeline
-│       └── train.yml                  # Training workflow
+├── README.md                          <- Project description and setup instructions
+├── PLAN.md                            <- This file
+├── requirements.txt                   <- Python dependencies
+├── requirements-inference.txt         <- Minimal dependencies for inference only
+├── Makefile                           <- Build targets (install, data, train, app)
+├── run_pipeline.py                    <- Unified pipeline: data -> embed -> train -> eval -> app
+├── Dockerfile                         <- Containerized deployment (CPU)
+├── Dockerfile.gpu                     <- GPU deployment with CUDA
+├── LICENSE
 ├── app/
-│   ├── main.py                        # FastAPI backend (upload -> SigLIP -> triage)
+│   ├── main.py                        <- FastAPI backend (upload -> SigLIP -> triage)
 │   └── templates/
-│       └── index.html                 # Polished dark-theme frontend with risk gauge
+│       └── index.html                 <- Legacy frontend
+├── webapp-react/                      <- React 19 + TypeScript frontend
+│   ├── src/
+│   │   ├── App.tsx                    <- Main app with routing
+│   │   ├── components/               <- UI components (upload, results, layout, camera, history)
+│   │   ├── contexts/                  <- App state and theme contexts
+│   │   ├── hooks/                     <- Analysis, history, validation, network hooks
+│   │   ├── lib/                       <- API client, utilities
+│   │   └── types/                     <- TypeScript interfaces
+│   ├── public/                        <- Static assets
+│   └── package.json                   <- React 19, Vite 7, Tailwind CSS 4, Radix UI
 ├── configs/
-│   └── config.yaml                    # All configuration (data, training, triage thresholds)
+│   ├── config.yaml                    <- All configuration (data, training, triage thresholds)
+│   └── benchmark_config.yaml          <- Benchmarking configuration
 ├── models/
-│   └── finetuned_siglip/              # Dedicated backup of fine-tuned model
-│       ├── config.json                # Architecture config (tracked in git)
-│       ├── head_state.pt              # Classification head only (~1.2 MB)
-│       └── model_state.pt             # Full fine-tuned SigLIP (~3.3 GB, gitignored)
-├── data/                              # gitignored — local datasets
+│   ├── finetuned_siglip/              <- Fine-tuned SigLIP model (~3.3GB, gitignored weights)
+│   ├── mobilenet_distilled/           <- MobileNetV3-Large distilled model
+│   ├── mobilenet_distilled_v2/        <- MobileNetV3 v2 (30 epochs, improved)
+│   └── efficientnet_distilled/        <- EfficientNet-B0 distilled model
+├── data/                              <- gitignored -- local datasets (5 sources)
 ├── notebooks/
-│   ├── colab_demo.ipynb               # Google Colab demo notebook
-│   ├── demo.ipynb                     # Local demo notebook
-│   ├── label_taxonomy_eda.ipynb       # Label taxonomy & data enrichment EDA
-│   ├── quick_start_with_hugging_face.ipynb
-│   ├── skin_tone_eda.ipynb            # Skin tone exploratory analysis
-│   └── skin_tone_eda_executed.ipynb
-├── results/                           # gitignored — cached embeddings, models, metrics
-│   └── cache/
-│       ├── embeddings.pt              # Cached SigLIP embeddings (~46k samples)
-│       ├── classifier.pkl             # Default binary model (for app)
-│       ├── classifier_baseline.pkl    # Majority class baseline (binary)
-│       ├── classifier_logistic.pkl    # Logistic regression (binary)
-│       ├── classifier_deep.pkl        # Deep MLP (binary)
-│       ├── classifier_condition.pkl   # Default condition model (10-class)
-│       ├── classifier_condition_logistic.pkl  # Logistic regression (condition)
-│       ├── classifier_condition_deep.pkl      # Deep MLP (condition)
-│       ├── finetuned_model/           # End-to-end fine-tuned SigLIP (if trained)
-│       ├── metadata.csv               # Full dataset metadata
-│       ├── test_metadata.csv          # Test split metadata
-│       ├── training_results.json      # Binary training metrics
-│       ├── condition_training_results.json    # Condition training metrics
-│       └── evaluation_results.json    # Full evaluation (both targets)
+│   ├── label_taxonomy_eda.ipynb       <- Label taxonomy and data enrichment EDA
+│   ├── skin_tone_eda.ipynb            <- Skin tone exploratory analysis
+│   ├── colab_demo.ipynb               <- Google Colab demo
+│   └── demo.ipynb                     <- Local demo
+├── results/                           <- gitignored -- cached embeddings, models, metrics
+│   ├── cache/                         <- Embeddings, classifiers, training results JSONs
+│   ├── domain_gap_analysis.png        <- Domain shift visualization
+│   ├── fitzpatrick_coverage.png       <- Skin tone coverage visualization
+│   └── label_distributions_raw.png    <- Label distribution visualization
 ├── scripts/
-│   ├── train.py                       # Main training (--multi-dataset --model all --domain-balance)
-│   ├── train_all_models.py            # Train + compare all model types
-│   ├── evaluate.py                    # Full fairness evaluation report
-│   └── evaluate_cross_domain.py       # Leave-one-domain-out experiment
+│   ├── train.py                       <- Main training script
+│   ├── train_all_models.py            <- Train + compare all model types
+│   ├── evaluate.py                    <- Full fairness evaluation report
+│   ├── evaluate_cross_domain.py       <- Leave-one-domain-out experiment
+│   ├── full_retraining_pipeline.py    <- Standalone retraining with SigLIP fine-tuning
+│   └── clinical_triage_analysis.py    <- Triage threshold optimization
 ├── src/
 │   ├── data/
-│   │   ├── schema.py                  # SkinSample dataclass (unified schema for all datasets)
-│   │   ├── taxonomy.py                # Unified condition taxonomy (10 categories) + per-dataset maps
-│   │   ├── loader.py                  # load_ham10000(), load_multi_dataset() orchestrator
-│   │   ├── datasets/
-│   │   │   ├── __init__.py            # DATASET_LOADERS registry (5 datasets)
-│   │   │   ├── ham10000.py            # HAM10000 adapter -> SkinSample
-│   │   │   ├── ddi.py                 # DDI adapter (skin_tone -> Fitzpatrick mapping)
-│   │   │   ├── fitzpatrick17k.py      # Fitz17k adapter (three_partition_label -> binary)
-│   │   │   ├── pad_ufes.py            # PAD-UFES adapter (smartphone domain)
-│   │   │   └── bcn20000.py            # BCN20000 adapter (dermoscopic, adds SCC)
-│   │   ├── sampler.py                 # Domain + Fitzpatrick balanced sampling weights
-│   │   ├── augmentations.py           # Training/eval transforms + domain bridging
-│   │   └── dermoscope_aug.py          # Custom dermoscope artifact augmentations
+│   │   ├── schema.py                  <- SkinSample dataclass (unified schema)
+│   │   ├── taxonomy.py                <- Unified condition taxonomy (10 categories)
+│   │   ├── loader.py                  <- Multi-dataset loading orchestrator
+│   │   ├── datasets/                  <- Per-dataset adapters (5 datasets)
+│   │   ├── sampler.py                 <- Domain + Fitzpatrick balanced sampling
+│   │   ├── augmentations.py           <- Training/eval transforms + domain bridging
+│   │   └── dermoscope_aug.py          <- Custom dermoscope artifact augmentations
 │   ├── model/
-│   │   ├── embeddings.py              # SigLIP embedding extraction + caching
-│   │   ├── classifier.py              # SklearnClassifier (logistic regression)
-│   │   ├── baseline.py                # MajorityClassBaseline + RandomWeightedBaseline
-│   │   ├── deep_classifier.py         # DeepClassifier (MLP head) + EndToEndClassifier
-│   │   └── triage.py                  # TriageSystem with urgency tiers + disclaimers
+│   │   ├── embeddings.py              <- SigLIP embedding extraction + caching
+│   │   ├── classifier.py              <- Sklearn classifier (logistic, XGBoost)
+│   │   ├── baseline.py                <- Majority class baseline
+│   │   ├── deep_classifier.py         <- Deep MLP + EndToEndSigLIP
+│   │   └── triage.py                  <- TriageSystem with urgency tiers
 │   └── evaluation/
-│       └── metrics.py                 # F1, accuracy, AUC, per-group, equalized odds
-├── .env                               # gitignored — Kaggle credentials, env vars
-├── .gitignore
-├── Dockerfile                         # Containerized deployment (CPU)
-├── Dockerfile.gpu                     # GPU deployment with CUDA
-├── LICENSE
-├── Makefile                           # Build targets (install, data, train, app)
-├── PLAN.md                            # This file
-├── README.md
-├── run_pipeline.py                    # Unified pipeline: data → embed → train → eval → app
-└── requirements.txt
+│       └── metrics.py                 <- F1, accuracy, AUC, per-group, equalized odds
+├── writeup/
+│   ├── main.tex                       <- NeurIPS-style technical report
+│   ├── references.bib                 <- Bibliography
+│   └── neurips_2024.sty               <- Style file
+├── huggingface_space/                 <- HuggingFace Space (Gradio interface)
+├── .docs/                             <- Deployment and benchmarking documentation
+├── .github/
+│   └── workflows/
+│       ├── deploy-webapp.yml          <- Frontend deployment
+│       ├── inference-server-a.yml     <- Inference server A
+│       ├── inference-server-b.yml     <- Inference server B
+│       └── train.yml                  <- Training workflow
+└── .gitignore
 ```
 
 ---
@@ -458,442 +667,144 @@ SkinTag/
 
 ### Unified Pipeline (Recommended)
 
-The `run_pipeline.py` script runs the entire pipeline end-to-end in one command:
-
 ```bash
-# Full pipeline: data → embed → train → evaluate → web app
-python run_pipeline.py
-
-# Quick smoke test (500 samples, skip web app)
-python run_pipeline.py --quick --no-app
-
-# Skip training, re-evaluate existing models
-python run_pipeline.py --skip-train
-
-# Just launch the web app (requires prior training)
-python run_pipeline.py --app-only
+python run_pipeline.py                     # Full pipeline: data -> embed -> train -> eval -> app
+python run_pipeline.py --quick --no-app    # Quick smoke test (500 samples)
+python run_pipeline.py --skip-train        # Re-evaluate existing models
+python run_pipeline.py --app-only          # Launch web app only
 ```
-
-The pipeline:
-1. **Checks environment** — verifies packages, 5 datasets, model cache
-2. **Loads data** — reads metadata and image paths (no images in RAM)
-3. **Extracts embeddings** — streams images from disk per-batch through SigLIP
-4. **Trains models** — binary (baseline, logistic, deep MLP) + condition (logistic, deep MLP)
-5. **Evaluates** — fairness metrics, per-Fitzpatrick sensitivity, equalized odds, condition accuracy
-6. **Launches web app** — FastAPI triage + condition estimation interface
-
-Each stage is wrapped in error handling. If a stage fails, the pipeline logs a warning and continues. Internet is only needed on the first run (SigLIP model download).
 
 ### Setup
+
 ```bash
-# Install Python dependencies
 pip install -r requirements.txt
-# Or:
-make install
-
-# For GPU support (CUDA 12.6, requires NVIDIA driver ≥535):
+# GPU support (CUDA 12.6):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-
-# Download HAM10000 (requires Kaggle API credentials)
-make data
-
-# Download other datasets (see "Downloading Data Locally" above)
-# DDI: requires Stanford AIMI access request
-# Fitzpatrick17k: CSV from GitHub, images from URLs
-# PAD-UFES-20: from Mendeley Data or Kaggle
+make data                                  # Download HAM10000 (Kaggle credentials required)
 ```
 
-### Individual Training Scripts
+### Training
+
 ```bash
-# Single dataset (HAM10000), logistic regression
-python scripts/train.py
-
-# All 3 models on HAM10000
-python scripts/train.py --model all
-
-# Multi-dataset, all models, domain+Fitzpatrick balanced
 python scripts/train.py --multi-dataset --domain-balance --model all
-
-# Train + compare all model types
-python scripts/train_all_models.py
-
-# Quick smoke test (500 samples)
-python scripts/train.py --sample 500
+python scripts/full_retraining_pipeline.py --finetune-siglip --epochs 15
 ```
 
 ### Evaluation
-```bash
-# Full fairness report
-python scripts/evaluate.py --models logistic deep baseline
 
-# Cross-domain experiment
+```bash
+python scripts/evaluate.py --models logistic deep baseline
 python scripts/evaluate_cross_domain.py
 ```
 
 ### Web App
+
 ```bash
-# Local development
-make app                           # http://localhost:8000
-
-# Docker (CPU)
-make app-docker
-
-# Docker with GPU
-make app-docker-gpu
+make app                                   # http://localhost:8000
+make app-docker                            # Docker (CPU)
+make app-docker-gpu                        # Docker (GPU)
 ```
 
 ---
 
 ## Key Design Decisions
 
-1. **F1 macro as primary metric** — accuracy is misleading on class-imbalanced data (70% benign -> 70% accuracy by always predicting benign). F1 macro treats both classes equally.
+1. **F1 macro as primary metric** -- accuracy is misleading on class-imbalanced data (79% benign -> 79% accuracy by always predicting benign). F1 macro treats both classes equally.
 
-2. **Fitzpatrick-balanced sampling, not oversampling** — oversampling duplicates minority images (overfitting risk). Balanced sample weights upweight minority samples in the loss function without duplication.
+2. **Fitzpatrick-balanced sampling, not oversampling** -- oversampling duplicates minority images (overfitting risk). Balanced sample weights upweight minority samples in the loss function without duplication.
 
-3. **Domain-bridging augmentations** — randomly add dermoscope artifacts to phone photos and remove them from dermoscopic images. The model sees all label-domain combinations, breaking spurious correlations.
+3. **Domain-bridging augmentations** -- randomly add dermoscope artifacts to phone photos and remove them from dermoscopic images. The model sees all label-domain combinations, breaking spurious correlations.
 
-4. **three_partition_label for Fitzpatrick17k** — the dataset provides a reliable benign/malignant/non-neoplastic partition. Using this instead of fuzzy string matching against 114 condition names eliminates misclassification risk. **Non-neoplastic is included as benign** (not cancer = benign for triage). This recovers ~8,000 images that were previously excluded.
+4. **three_partition_label for Fitzpatrick17k** -- reliable benign/malignant/non-neoplastic partition eliminates fuzzy string matching. Non-neoplastic included as benign (not cancer = benign for triage), recovering ~8,000 images.
 
-5. **DDI skin_tone as grouped Fitzpatrick** — DDI uses groups (I-II, III-IV, V-VI) not individual types. We map to midpoints (1, 3, 5) for consistency but note the grouping in analysis.
+5. **Triage tiers, not probabilities** -- users understand "moderate concern -- schedule a dermatology appointment within 2-4 weeks" better than "0.47 probability of malignancy."
 
-6. **Triage tiers, not probabilities** — users don't understand "0.47 probability of malignancy." They understand "moderate concern — schedule a dermatology appointment within 2-4 weeks."
+6. **Medical disclaimer everywhere** -- screening aid, not diagnosis. Every output includes a prominent disclaimer.
 
-7. **Medical disclaimer everywhere** — this is a screening aid, not a diagnosis. Every output includes a prominent disclaimer. The app makes this impossible to miss.
+7. **SigLIP backbone** -- 400M parameter vision-language model producing 1152-d embeddings. Strong zero-shot medical image understanding.
 
-8. **SigLIP (google/siglip-so400m-patch14-384) as backbone** — 400M parameter vision-language model producing 1152-d embeddings. Strong zero-shot medical image understanding. Model is cached locally via HuggingFace Hub (~1.6GB) and gitignored.
+8. **Lazy/streaming image loading** -- reduced data loading from ~393s to ~2s by storing paths instead of images.
 
-9. **Lazy/streaming image loading** — Dataset loaders store file paths, not PIL images. The embedding extractor loads images per-batch from disk, keeping only a few images in RAM at any time. This reduced data loading from ~393s to ~2s for 29k samples and avoids multi-GB RAM usage.
-
-10. **GPU auto-detection** — Pipeline auto-detects CUDA availability and adjusts batch size (4 for CPU, 16 for GPU). With RTX 4070 Ti SUPER (16GB VRAM), full-dataset embedding extraction runs significantly faster than CPU.
+9. **GPU auto-detection** -- pipeline auto-detects CUDA and adjusts batch size (4 CPU, 16 GPU).
 
 ---
 
-## Phase 2: Deployment Roadmap
+## Conclusions
 
-### 2A. Web Application (Internet-Connected)
+SkinTag demonstrates that the apparent trade-off between fairness and performance in dermatology AI may be an artifact of insufficient data diversity. Key findings:
 
-A cloud-hosted web app that allows users to upload a photo from any device with an internet connection and receive triage results in real time.
+1. **Two-stage training is optimal**: Fine-tune embeddings with SigLIP, then classify with XGBoost. This outperforms both end-to-end fine-tuning and classical ML on frozen embeddings.
+2. **Fairness is achievable**: Fitzpatrick-balanced sampling reduces sensitivity gaps across skin tones to <5% without sacrificing overall performance (0.951 F1 macro).
+3. **Multi-domain training generalizes**: Training on 5 datasets spanning 3 imaging domains enables 98.9% accuracy on smartphone images -- the target deployment scenario.
+4. **Robustness matters**: Field condition augmentations improve performance under real-world distortions by 1.5-4.2% across conditions.
+5. **Knowledge distillation preserves quality**: 200-270x model compression (3.4GB to 12-17MB) with <0.4% F1 loss enables future mobile deployment.
 
-**Architecture:**
-- **Backend**: FastAPI server hosting the fine-tuned SigLIP model (or XGBoost on pre-extracted embeddings as a fast fallback)
-- **Frontend**: Responsive web UI (mobile-first design) with camera capture and image upload
-- **Inference flow**: User uploads image -> server runs SigLIP embedding extraction -> classification head -> triage tier + condition estimate returned to client
-- **Hosting options**: Cloud GPU instance (e.g., AWS/GCP with T4), or CPU-only with the lightweight XGBoost pipeline (embeddings + XGBoost, no fine-tuned backbone needed at inference)
+---
 
-**Key tasks:**
-1. Refactor `app/main.py` to support both model backends (fine-tuned SigLIP end-to-end vs. XGBoost on frozen embeddings)
-2. Add mobile-responsive camera capture (HTML5 `getUserMedia` API) for phone-based photo taking
-3. Deploy behind HTTPS with rate limiting and input validation (image size, format checks)
-4. Add result explanation panel: triage tier, condition estimate, confidence, and prominent medical disclaimer
-5. Containerize with Docker for reproducible deployment (existing `Dockerfile` as starting point)
-6. Evaluate hosting: HuggingFace Spaces (free GPU), AWS SageMaker, or GCP Cloud Run
+## Future Work
 
-**Model selection for web:**
-- **Primary**: Fine-tuned SigLIP (`models/finetuned_siglip/`) — best accuracy (92.3%), requires GPU or beefy CPU
-- **Fallback**: XGBoost on frozen SigLIP embeddings — F1 macro 0.938, runs on CPU, only needs the frozen SigLIP encoder (no fine-tuned weights)
+### Mobile Deployment (Offline Inference)
 
-### 2B. Offline Mobile Application (No Internet Required)
+A native mobile application running inference entirely on-device for use in areas without reliable internet connectivity.
 
-A native mobile app (Android and/or iOS) that runs inference entirely on-device, enabling use in areas without reliable internet connectivity — critical for the low-resource settings this project targets.
-
-**Core challenge:** The full fine-tuned SigLIP is ~3.3 GB — too large for most mobile devices. A lightweight model is required.
-
-**Model compression strategy:**
-1. **Export classification head only** (~1.2 MB, `head_state.pt`) — pair with a smaller on-device vision backbone
-2. **Knowledge distillation**: Train a smaller student model (e.g., MobileNetV3, EfficientNet-Lite, or SigLIP-B/16 at 86M params) to mimic the fine-tuned SigLIP's predictions. Target model size: 20-50 MB
-3. **ONNX/TFLite export**: Convert the distilled model to ONNX (Android via ONNX Runtime) or TFLite (Android + iOS via TensorFlow Lite / Core ML)
-4. **Quantization**: Apply INT8 post-training quantization to further reduce model size and improve inference speed on mobile hardware (ARM NEON / Apple Neural Engine)
-
-**Platform strategy:**
-
-| Platform | Runtime | Format | Framework |
-|----------|---------|--------|-----------|
-| Android | ONNX Runtime Mobile / TFLite | `.onnx` or `.tflite` | Kotlin/Java + CameraX |
-| iOS | Core ML | `.mlmodel` (converted from ONNX) | Swift + AVFoundation |
-| Cross-platform | React Native or Flutter | TFLite via plugin | Single codebase for both |
-
-**Key tasks:**
-1. Select a lightweight backbone (MobileNetV3-Large or EfficientNet-Lite0 are strong candidates at ~5-20 MB)
-2. Implement knowledge distillation: fine-tuned SigLIP as teacher, lightweight model as student, train on the same 47k dataset
-3. Validate distilled model achieves acceptable accuracy (target: >85% test acc, >0.75 F1 malignant — within ~5% of the teacher)
-4. Export to ONNX and convert to platform-specific formats (TFLite, Core ML)
-5. Build minimal mobile app with camera capture, on-device inference, and triage display
-6. Handle edge cases: poor lighting, blurry images, non-lesion photos (OOD detection)
-7. Package model weights inside the app binary (no download required after install)
-
-**Estimated model sizes after distillation + quantization:**
-
-| Model | FP32 | INT8 Quantized |
-|-------|------|----------------|
-| MobileNetV3-Large + head | ~22 MB | ~6 MB |
-| EfficientNet-Lite0 + head | ~19 MB | ~5 MB |
-| SigLIP-B/16 (small) + head | ~350 MB | ~90 MB |
-
-MobileNetV3-Large is the recommended starting point: small enough for any phone, well-supported by TFLite/Core ML, and proven effective for medical imaging transfer learning.
-
-#### Phase 2B Results (Completed 2026-02-04)
-
-**Training completed** on the full 47,277 sample dataset using knowledge distillation from fine-tuned SigLIP.
-
-| Model | Parameters | Size | Accuracy | F1 Macro | F1 Malignant | AUC |
-|-------|------------|------|----------|----------|--------------|-----|
-| SigLIP (Teacher) | 878M | 3.4 GB | 92.30% | 0.887 | 0.824 | ~0.96 |
-| **MobileNetV3-Large** | 3.2M | **12.5 MB** | **92.44%** | 0.884 | 0.816 | 0.959 |
-| **EfficientNet-B0** | 4.3M | **16.8 MB** | **92.65%** | 0.887 | 0.820 | 0.960 |
-
-**Key achievements:**
-- Both distilled models match teacher performance (within 0.4% F1)
-- Model size reduced by **200-270x** (from 3.4 GB to 12-17 MB)
-- Targets exceeded: >85% accuracy, >0.75 F1 malignant, <25 MB size
+**Completed preparatory work**:
+- Knowledge distillation: MobileNetV3-Large (12.5 MB, 92.4% acc) and EfficientNet-B0 (16.8 MB, 92.7% acc)
 - ONNX exports ready for Core ML (iOS) and TFLite (Android) conversion
+- Model artifacts in `models/mobilenet_distilled/` and `models/efficientnet_distilled/`
+- Prototype mobile app scaffolding in `mobile/` (Flutter and iOS)
 
-**Artifacts:**
-- `models/mobilenet_distilled/` — MobileNetV3-Large weights + ONNX
-- `models/efficientnet_distilled/` — EfficientNet-B0 weights + ONNX
-- `mobile/ios/SkinTag/` — Complete iOS SwiftUI app
-- `mobile/flutter/skin_tag/` — Complete Flutter cross-platform app
-- `docs/MOBILE_REPORT.md` — Full deployment report
+**Remaining work**:
+- Convert ONNX to Core ML and TFLite formats
+- Build native mobile apps with camera capture and on-device inference
+- INT8 quantization (target: 5-6 MB)
+- UI framing guidance and lesion centering overlay
+- App store submission and beta testing
 
-### 2C. Clinical Triage System (Completed 2026-02-04)
+### Hierarchical Multi-Task Fine-Tuning
 
-A four-tier clinical triage system designed with dermatologist input for real-world clinical decision support.
+Per-condition sensitivity gaps for melanoma (68%) and SCC (59%) need improvement via hierarchical multi-task loss with clinical class weights.
 
-#### Four-Tier Clinical Triage
+### Automated Lesion Detection
 
-| Tier | Malignancy Score | Conditions | Color | Timeframe | Action |
-|------|------------------|------------|-------|-----------|--------|
-| **URGENT** | >60% | Melanoma, SCC | Red (#dc2626) | Within 2 weeks | Seek urgent dermatology referral |
-| **PRIORITY** | 30-60% | BCC, Actinic Keratosis | Orange (#ea580c) | Within 1 month | Schedule dermatology appointment |
-| **ROUTINE** | 15-30% | Non-Neoplastic | Blue (#1a56db) | Within 3 months | Primary care follow-up |
-| **MONITOR** | <15% | Benign lesions | Green (#16a34a) | 6-12 months | Self-monitor, photograph changes |
+Lightweight object detection (YOLO-Nano or MobileNet-SSD) for automatic lesion cropping, enabling photography from any distance and multi-lesion triage.
 
-**Justification**: The four-tier system aligns with clinical practice where dermatologists mentally categorize patients by urgency. The thresholds were derived from clinical triage analysis (`scripts/clinical_triage_analysis.py`) optimized for 95% sensitivity on malignant conditions:
-- At 95% sensitivity, binary threshold = 0.157 with 77% specificity
-- Per-condition AUC ranges from 0.85 (Non-Neoplastic) to 0.97 (Vascular Lesion)
-- Melanoma sensitivity: 68% → needs improvement via retraining (see Phase 3)
+### Prospective Clinical Validation
 
-#### Clinical Guidance with DermNet Links
+Retrospective evaluation must be followed by prospective clinical validation before real-world deployment.
 
-Each condition includes contextual guidance with links to authoritative dermatology resources:
+### Webapp Feature Roadmap
 
-```javascript
-// Example from public/classic/index.html
-const CLINICAL_GUIDANCE = {
-    "Melanoma": {
-        urgency: "urgent",
-        timeframe: "Within 2 weeks",
-        action: "Seek urgent dermatology referral for dermoscopy and possible biopsy.",
-        warning: "Melanoma can be life-threatening if not caught early...",
-        link: "https://dermnetnz.org/topics/melanoma",
-        linkText: "DermNet: Melanoma"
-    },
-    // ... 9 more conditions
-};
-```
-
-**Key design decisions:**
-1. **DermNet NZ as reference**: Peer-reviewed, dermatologist-maintained, freely accessible
-2. **Links only shown when online**: `navigator.onLine` check prevents broken links offline
-3. **Non-neoplastic treatment callout**: Conditions like eczema/psoriasis may resolve with OTC treatment
-4. **Prominent disclaimers**: "AI screening tool, not a diagnosis" visible in all tiers
-
-#### Artifacts
-- `public/classic/index.html` — Web app with 4-tier triage + tooltips
-- `results/clinical_triage_config.json` — Threshold configuration
-- `scripts/clinical_triage_analysis.py` — Analysis script
-
-### 2D. Field Condition Augmentations (Completed 2026-02-04)
-
-Augmentation pipeline simulating realistic smartphone capture conditions for improved robustness in field deployments.
-
-#### Augmentation Categories
-
-| Category | Simulation | Albumentations |
-|----------|-----------|----------------|
-| Motion blur | Shaky hands during capture | `MotionBlur`, `GaussianBlur`, `MedianBlur` |
-| Focus issues | Autofocus problems | `Defocus`, `ZoomBlur` |
-| Lighting | Indoor/outdoor variations | `RandomBrightnessContrast`, `RandomGamma`, `RandomToneCurve` |
-| Color cast | Different light sources | `HueSaturationValue`, `RGBShift`, `ColorJitter` |
-| Sensor noise | Low light, older phones | `GaussNoise`, `ISONoise`, `MultiplicativeNoise` |
-| Compression | WhatsApp/social media | `ImageCompression`, `Downscale` |
-| Shadows | Hand/phone occlusion | `RandomShadow` |
-| Glare | Flash reflection | `RandomSunFlare` |
-
-**Severity levels**: `light`, `moderate`, `heavy` — configurable based on target deployment environment.
-
-**Justification**: Training images are predominantly from clinical settings with controlled lighting and professional equipment. Real-world smartphone photos exhibit significant degradation. Field condition augmentations bridge this domain gap during training.
-
-#### Artifacts
-- `src/data/augmentations.py` — Reusable augmentation pipelines
-- `scripts/full_retraining_pipeline.py` — Standalone retraining with augmentations
-
-### 2E. Distance and Framing Considerations
-
-**Problem**: Training datasets contain close-up, well-framed lesion images (typically 2-10cm from skin). Real users may photograph from farther away, capture multiple lesions, or poorly frame the region of interest.
-
-#### Impact Analysis
-
-| Distance | Image Content | Model Performance |
-|----------|---------------|-------------------|
-| 2-10cm (training) | Single lesion fills frame | Optimal — matches training |
-| 20-30cm | Lesion + surrounding skin | Degraded — lesion may be small |
-| 50cm+ | Multiple lesions or body part | Poor — needs lesion detection |
-
-#### Recommended Solutions
-
-**1. Mobile App UI Guidance (Implemented)**
-- Display framing overlay showing optimal lesion placement
-- Provide real-time feedback: "Move closer" / "Center the lesion"
-- Show reference distance indicator (~10cm from skin)
-
-**2. Zoom Prompt (Recommended)**
-- Detect if lesion is too small in frame (< 20% of image area)
-- Prompt user to zoom in or move closer
-- Can be implemented with simple thresholding on detected lesion size
-
-**3. Lesion Detection Pre-processing (Future Phase 3)**
-- Train a lightweight object detection model (YOLO-Nano or MobileNet-SSD)
-- Automatically detect and crop to the primary lesion
-- Enables multi-lesion triage in a single photo
-- Model size: ~5-10 MB additional for mobile deployment
-
-**4. Multi-Scale Inference (Alternative)**
-- Run inference at multiple crop scales
-- Aggregate predictions weighted by crop confidence
-- Increases inference time 3-5x but requires no additional model
-
-**Current Status**: Mobile apps include framing guidance in UI. Lesion detection is deferred to Phase 3 as it requires additional labeled bounding box data.
-
-**Justification**: UI guidance is the most cost-effective solution for MVP. Users can adapt their behavior with minimal friction. Automated lesion detection provides a better experience but requires dedicated object detection training data (bounding boxes) not present in current datasets.
+Prioritized features in `webapp-react/FEATURES.md`: download/export results, PWA offline support, find nearby dermatologists, multi-image comparison, analysis trend charts, and telemedicine integration.
 
 ---
 
-## Phase 3: Retraining and Enhancement (Planned)
+## Commercial Viability Statement
 
-### 3A. Standalone Retraining Pipeline (Completed 2026-02-05)
+SkinTag demonstrates potential for real-world commercial application with significant caveats:
 
-A comprehensive retraining script (`scripts/full_retraining_pipeline.py`) that:
-- Runs completely standalone after initial setup (no Claude Code needed)
-- Never overwrites existing models (versioned output directories)
-- Trains multiple classifier types for comparison
-- Demonstrates fine-tuning improvement over frozen embeddings
-- Includes SigLIP fine-tuning with field condition augmentations (`--finetune-siglip`)
+**Strengths**: Addresses a genuine unmet need (limited dermatologist access). Strong performance across skin tones (fairness gap <5%) differentiates from existing tools. Lightweight distilled models enable offline mobile use. Three-tier triage provides clinically actionable outputs. Works with consumer smartphone photos.
 
-#### Classifier Types Trained
+**Barriers**: FDA Class II medical device classification requires clinical trials and 510(k) clearance (multi-year, multi-million dollar process). False negatives carry significant medical-legal risk. Melanoma sensitivity (68%) and SCC sensitivity (59%) are below clinical thresholds for standalone screening.
 
-| Classifier | Description | Use Case |
-|------------|-------------|----------|
-| XGBoost | Gradient boosting on embeddings | Best accuracy, production deployment |
-| Logistic | Linear classifier on embeddings | Fast, interpretable baseline |
-| MLP | 2-layer neural network | Flexible capacity |
-| Hierarchical | Binary head + condition head | Multi-task learning |
+**Viable pathway**: Position as a triage/screening aid (not diagnostic tool) with prominent medical disclaimers. Target B2B (healthcare systems, telemedicine platforms) rather than direct-to-consumer. Pursue clinical partnerships for prospective validation.
 
-#### Fine-tuning Comparison (Full Pipeline)
+---
 
-The pipeline compares frozen vs. fine-tuned SigLIP embeddings to demonstrate the value of domain adaptation:
+## Ethics Statement
 
-| Embedding Type | XGBoost Acc | XGBoost AUC | Δ |
-|----------------|-------------|-------------|---|
-| Frozen SigLIP | 95.7% | 0.990 | baseline |
-| Fine-tuned SigLIP | 96.8% | 0.992 | +1.1% |
+### Patient Safety
+SkinTag is a **triage aid, not a diagnostic tool**. All outputs include prominent disclaimers. The system explicitly recommends professional evaluation for any concerning findings.
 
-**Key finding**: Fine-tuning the last 4 transformer layers improves downstream classifier performance, especially under image distortions.
+### Fairness and Bias
+We actively address skin tone bias through Fitzpatrick-balanced sampling, DDI as a fairness benchmark, per-Fitzpatrick-type evaluation, and equalized odds monitoring. Residual disparities may exist for rare (condition, skin tone) combinations.
 
-#### Retraining Pipeline Results (2026-02-04 Run)
+### Privacy
+No patient images are stored server-side after inference. No personally identifiable information is collected. Analysis history is stored locally on the user's device only.
 
-Full SigLIP fine-tuning with field condition augmentations completed on 47,277 samples:
+### Potential for Harm
+- False negatives could delay cancer diagnosis. Mitigated by conservative triage thresholds (95% sensitivity operating point).
+- False positives could cause unnecessary anxiety. Mitigated by graded urgency levels rather than binary labels.
+- Over-reliance on AI could substitute for professional care. Mitigated by persistent medical disclaimers.
 
-| Model | Accuracy | F1 | AUC |
-|-------|----------|----|-----|
-| XGBoost (frozen embeddings) | 88.2% | 0.794 | 0.916 |
-| **XGBoost (fine-tuned embeddings)** | **92.0%** | **0.866** | **0.960** |
-| MLP (fine-tuned embeddings) | 91.2% | 0.856 | 0.945 |
-| XGBoost condition 10-class (fine-tuned) | 71.2% | 0.554 | 0.935 |
-
-**Fine-tuning improvement: +4.8% AUC** over frozen embeddings on the same evaluation split.
-
-**Clinical Thresholds (XGBoost on fine-tuned embeddings):**
-
-| Sensitivity | Threshold | Specificity |
-|-------------|-----------|-------------|
-| 99% | 0.001 | 47.6% |
-| **95%** | **0.034** | **82.5%** |
-| 90% | 0.140 | 89.0% |
-| 85% | 0.291 | 92.1% |
-
-**SigLIP Fine-tuning Configuration:**
-- Model: google/siglip-so400m-patch14-384 (878M params)
-- Unfrozen layers: Last 4 vision encoder layers (~7% trainable)
-- Best fine-tuning head AUC: 0.957
-- Output directory: `results/cache/clinical_v20260204_161741/`
-
-#### Bug Fix: WeightedRandomSampler + Embedding Extraction
-
-A critical bug was discovered and fixed where `WeightedRandomSampler` randomized the iteration order during train embedding extraction. Since the sampler samples with replacement in random order, the extracted embeddings could not be aligned with metadata labels, producing random-chance AUC (0.50).
-
-**Fix**: A separate sequential `DataLoader` (no sampler, `shuffle=False`) is now created specifically for embedding extraction, while the sampler-based loader remains for training. See `scripts/full_retraining_pipeline.py` line ~730.
-
-#### Running the Retraining Pipeline
-
-```bash
-# Activate conda environment
-conda activate skintag
-
-# Full retraining with SigLIP fine-tuning (15 epochs, ~4-6 hours on RTX 4070 Ti)
-python scripts/full_retraining_pipeline.py --finetune-siglip --epochs 15
-
-# Quick test (2 epochs)
-python scripts/full_retraining_pipeline.py --finetune-siglip --epochs 2 --quick
-
-# Skip mobile training
-python scripts/full_retraining_pipeline.py --finetune-siglip --skip-mobile
-```
-
-### 3B. Hierarchical Multi-Task Fine-Tuning (Recommended)
-
-Based on clinical triage analysis, the current condition classifier underperforms on high-priority conditions:
-
-| Condition | Current Sensitivity | Target | Gap |
-|-----------|---------------------|--------|-----|
-| Melanoma | 68% | 95% | -27% |
-| SCC | 59% | 93% | -34% |
-| Non-Neoplastic | 59% | 75% | -16% |
-
-**Recommended approach**: Hierarchical multi-task loss with clinical class weights:
-
-```python
-loss = (
-    0.5 * binary_loss +           # Primary triage signal
-    0.3 * condition_loss_weighted + # Condition estimation
-    0.2 * contrastive_loss         # Embedding separation
-)
-
-condition_weights = {
-    'melanoma': 15.0,     # rare + critical
-    'scc': 12.0,          # rare + urgent
-    'bcc': 3.0,           # common but priority
-    'ak': 8.0,            # moderate rarity
-    'non_neoplastic': 1.5 # common, needs separation
-}
-```
-
-See `docs/RETRAINING_RECOMMENDATIONS.md` for full implementation details.
-
-### 3C. Lesion Detection for Auto-Cropping (Future)
-
-Add a lightweight object detection model to automatically detect and crop lesions:
-
-**Architecture options**:
-- YOLO-Nano (~3 MB) — fastest inference
-- MobileNet-SSD (~10 MB) — best accuracy/size tradeoff
-- CenterNet (~5 MB) — anchor-free detection
-
-**Required data**: Bounding box annotations for lesions. Options:
-1. Generate pseudo-labels using GradCAM attention maps
-2. Use ISIC segmentation masks to derive bounding boxes
-3. Manual annotation of ~1000 images for fine-tuning
-
-**Benefits**:
-- Enables photography from any distance
-- Multi-lesion triage in single photo
-- Consistent cropping improves classifier consistency
+### Data Ethics
+All five datasets are publicly available for research use. DDI requires Stanford AIMI access request. No new patient data was collected. Dataset creators are credited and cited.

@@ -111,6 +111,9 @@ public/classic/
 # Internal reports
 .docs/MOBILE_REPORT.json
 
+# Writeup (hosted separately)
+writeup/
+
 # OS
 .DS_Store
 Thumbs.db
