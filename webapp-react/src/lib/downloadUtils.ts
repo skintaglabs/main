@@ -1,5 +1,5 @@
-export function copyResultsToClipboard(text: string): void {
-  navigator.clipboard.writeText(text)
+export function copyResultsToClipboard(text: string): Promise<void> {
+  return navigator.clipboard.writeText(text)
 }
 
 export function formatResultsAsText(results: {

@@ -277,7 +277,6 @@ Albumentations pipeline simulating realistic smartphone capture conditions: moti
 - **scale_pos_weight**: Computed from class ratio for imbalance handling
 
 ### Triage Thresholds
-- Optimized via clinical triage analysis (`scripts/clinical_triage_analysis.py`)
 - Three tiers with inflammatory auto-promotion:
   - LOW: <30% malignancy score (non-inflammatory benign)
   - MODERATE: 30-60% malignancy score, or inflammatory condition auto-promoted from LOW
@@ -604,8 +603,7 @@ SkinTag/
 │   ├── public/                        <- Static assets
 │   └── package.json                   <- React 19, Vite 7, Tailwind CSS 4, Radix UI
 ├── configs/
-│   ├── config.yaml                    <- All configuration (data, training, triage thresholds)
-│   └── benchmark_config.yaml          <- Benchmarking configuration
+│   └── config.yaml                    <- All configuration (data, training, triage thresholds)
 ├── models/
 │   ├── finetuned_siglip/              <- Fine-tuned SigLIP model (~3.3GB, gitignored weights)
 │   ├── mobilenet_distilled/           <- MobileNetV3-Large distilled model
@@ -626,9 +624,7 @@ SkinTag/
 │   ├── train.py                       <- Main training script
 │   ├── train_all_models.py            <- Train + compare all model types
 │   ├── evaluate.py                    <- Full fairness evaluation report
-│   ├── evaluate_cross_domain.py       <- Leave-one-domain-out experiment
-│   ├── full_retraining_pipeline.py    <- Standalone retraining with SigLIP fine-tuning
-│   └── clinical_triage_analysis.py    <- Triage threshold optimization
+│   └── evaluate_cross_domain.py       <- Leave-one-domain-out experiment
 ├── src/
 │   ├── data/
 │   │   ├── schema.py                  <- SkinSample dataclass (unified schema)
@@ -651,7 +647,7 @@ SkinTag/
 │   ├── references.bib                 <- Bibliography
 │   └── neurips_2024.sty               <- Style file
 ├── huggingface_space/                 <- HuggingFace Space (Gradio interface)
-├── .docs/                             <- Deployment and benchmarking documentation
+├── .docs/                             <- Deployment documentation
 ├── .github/
 │   └── workflows/
 │       ├── deploy-webapp.yml          <- Frontend deployment
@@ -687,7 +683,8 @@ make data                                  # Download HAM10000 (Kaggle credentia
 
 ```bash
 python scripts/train.py --multi-dataset --domain-balance --model all
-python scripts/full_retraining_pipeline.py --finetune-siglip --epochs 15
+# Or train all model types for comparison
+python scripts/train_all_models.py --multi-dataset --domain-balance
 ```
 
 ### Evaluation

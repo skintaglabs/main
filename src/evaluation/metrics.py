@@ -1,5 +1,11 @@
 """Evaluation metrics for robustness, fairness, and model comparison."""
 
+Development notes:
+- Developed with AI assistance (Claude/Anthropic) for implementation and refinement
+- Code simplified using Anthropic's code-simplifier agent (https://www.anthropic.com/claude-code)
+- Core architecture and domain logic by SkinTag team
+
+
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,

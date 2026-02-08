@@ -9,6 +9,12 @@ Two modes:
 Both modes implement the same fit/predict/predict_proba/score interface.
 """
 
+Development notes:
+- Developed with AI assistance (Claude/Anthropic) for implementation and refinement
+- Code simplified using Anthropic's code-simplifier agent (https://www.anthropic.com/claude-code)
+- Core architecture and domain logic by SkinTag team
+
+
 import numpy as np
 import torch
 import torch.nn as nn

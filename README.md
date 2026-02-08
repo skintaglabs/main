@@ -2,11 +2,12 @@
 
 AI-powered skin lesion triage for early melanoma detection, designed for equitable healthcare access.
 
-[![Deploy Frontend](https://github.com/skintaglabs/main/actions/workflows/deploy-webapp.yml/badge.svg)](https://github.com/skintaglabs/main/actions/workflows/deploy-webapp.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow)](https://huggingface.co/skintaglabs/siglip-skin-lesion-classifier)
-[![Live Demo](https://img.shields.io/badge/demo-live-success)](https://skintaglabs.github.io/main/)
+[![Deploy Frontend](https://github.com/skintaglabs/skintaglabs.github.io/actions/workflows/deploy-webapp.yml/badge.svg)](https://github.com/skintaglabs/skintaglabs.github.io/actions/workflows/deploy-webapp.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue?style=flat)](https://www.python.org/downloads/)
+[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow?style=flat)](https://huggingface.co/skintaglabs/siglip-skin-lesion-classifier)
+
+https://skintaglabs.github.io/
 
 ## Overview
 
@@ -16,51 +17,42 @@ SkinTag provides preliminary screening for skin lesions using a fine-tuned SigLI
 - Provides actionable recommendations with inflammatory condition auto-promotion
 - Works on mobile devices with camera support
 
-**Live application:** https://skintaglabs.github.io/
-
 ## Key Features
 
 - **Multi-dataset training:** 47k images from 5 datasets (HAM10000, DDI, BCN20000, Fitzpatrick17k, PAD-UFES-20)
 - **Fairness-aware:** Fitzpatrick-balanced sampling, equalized odds gap <5% across skin tones
 - **Domain robustness:** Trained on clinical, dermoscopic, and smartphone photos with field condition augmentations
-- **Serverless inference:** GitHub Actions + Cloudflare Tunnel deployment
 - **React frontend:** React 19 + TypeScript + Vite + Tailwind CSS
 
 ## Quick Start
 
-### Deploy Full Stack (Free)
+### Inference (CPU, Pre-trained Models)
 
 ```bash
-# 1. Add Hugging Face token
-gh secret set HF_TOKEN
+# Setup
+make venv                # Create venv + install dependencies
 
-# 2. Start inference server
-gh workflow run inference-server.yml
+# Run API server
+make app                 # Launch at http://localhost:8000
 
-# Frontend auto-deploys with tunnel URL
-# Visit: https://skintaglabs.github.io/main/
+# Frontend (separate terminal)
+make preview             # React dev server
 ```
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
-
-### Local Development
+### Training (NVIDIA GPU Required)
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Setup
+make install-gpu         # Install dependencies with CUDA
 
-# Run full pipeline (data -> embed -> train -> eval -> app)
-python run_pipeline.py
+# Download datasets
+make data                # HAM10000 from Kaggle (requires kaggle CLI)
 
-# Or run individual steps via Makefile
-make install          # Install dependencies
-make data             # Download datasets
-make train            # Train models
-make evaluate         # Run evaluation
-make app              # Launch API server at http://localhost:8000
-
-# Frontend development
-cd webapp-react && npm install && npm run dev
+# Train models
+make pipeline            # Full pipeline: data → embed → train → eval
+# OR
+make train               # Train individual models
+make evaluate            # Run fairness evaluation
 ```
 
 ## Model Performance
@@ -96,8 +88,7 @@ SkinTag/
 │   └── evaluation/            <- Fairness metrics, cross-domain evaluation
 ├── scripts/                   <- Training, evaluation, and utility scripts
 │   ├── train.py               <- Main training script
-│   ├── evaluate.py            <- Fairness evaluation
-│   └── full_retraining_pipeline.py  <- End-to-end SigLIP fine-tuning
+│   └── evaluate.py            <- Fairness evaluation
 ├── models/                    <- Trained model artifacts (gitignored weights)
 ├── data/                      <- Raw datasets (gitignored, 5 sources)
 ├── notebooks/                 <- Exploration notebooks (EDA, demos)
@@ -125,27 +116,16 @@ huggingface-cli upload YourOrg/YourModel . --repo-type model
 
 ## Deployment Options
 
-1. **GitHub Actions** (recommended, free)
-   - Serverless inference via Cloudflare tunnel
-   - Auto-restarts every 5 hours
-   - See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-
-2. **Docker**
+1. **Docker**
    ```bash
    docker build -t skintag .
    docker run -p 8000:8000 skintag
    ```
 
-3. **Local**
+2. **Local**
    ```bash
    make app
    ```
-
-## Research
-
-Detailed technical writeup: [writeup/main.tex](writeup/main.tex)
-
-NeurIPS-style paper with full methodology, results, and fairness analysis.
 
 ## Citation
 
@@ -156,7 +136,7 @@ If you use this work, please cite:
   title={SkinTag: Domain-Robust and Fairness-Aware Skin Lesion Triage via Fine-Tuned Vision-Language Models},
   author={Tanzillo, Dominic and Neves, Jonas and Gill, Roshan},
   year={2026},
-  url={https://github.com/skintaglabs/main}
+  url={https://github.com/skintaglabs/skintaglabs.github.io}
 }
 ```
 

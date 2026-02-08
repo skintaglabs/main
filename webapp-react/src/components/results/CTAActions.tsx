@@ -20,10 +20,14 @@ const tierActions = {
   high: DERM_ACTION,
 }
 
-async function getZipCode(lat: number, lon: number): Promise<string | null> {
+async function getLocationZipCode(): Promise<string | null> {
   try {
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+    })
+    const { latitude, longitude } = position.coords
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
       { headers: { 'User-Agent': 'SkinTag-App' } }
     )
     const data = await response.json()
@@ -37,23 +41,16 @@ export function CTAActions({ tier, results, onAnalyzeAnother }: CTAActionsProps)
   const actions = tierActions[tier]
 
   const handleClick = async (url: string) => {
-    if (url.includes('find-a-derm.aad.org')) {
-      try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-        })
+    let targetUrl = url
 
-        const zipCode = await getZipCode(position.coords.latitude, position.coords.longitude)
-        if (zipCode) {
-          window.open(url.replace('searchLocation=', `searchLocation=${zipCode}`), '_blank', 'noopener,noreferrer')
-          return
-        }
-      } catch {
-        // Location access denied or unavailable
+    if (url.includes('find-a-derm.aad.org')) {
+      const zipCode = await getLocationZipCode()
+      if (zipCode) {
+        targetUrl = url.replace('searchLocation=', `searchLocation=${zipCode}`)
       }
     }
 
-    window.open(url, '_blank', 'noopener,noreferrer')
+    window.open(targetUrl, '_blank', 'noopener,noreferrer')
   }
 
   const handleCopy = () => {

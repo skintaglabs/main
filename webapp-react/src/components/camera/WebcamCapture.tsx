@@ -1,3 +1,13 @@
+/**
+ * Real-time webcam capture with MediaPipe hand detection and image quality validation.
+ * Provides live feedback on distance, lighting, and hand positioning.
+ *
+ * Development notes:
+ * - Developed with AI assistance (Claude/Anthropic)
+ * - MediaPipe hand detection: https://developers.google.com/mediapipe/solutions/vision/hand_landmarker
+ * - getUserMedia API usage following MDN Web API documentation
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import { Camera, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { useRealtimeValidation } from '@/hooks/useRealtimeValidation'
@@ -158,15 +168,18 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
     onClose()
   }
 
-  const getStatusColor = () => {
-    if (metrics.readyToCapture) return 'text-green-500'
-    if (metrics.distance === 'too_far' || metrics.distance === 'too_close') return 'text-yellow-500'
-    return 'text-gray-400'
-  }
+  const statusColor = metrics.readyToCapture
+    ? 'text-green-500'
+    : metrics.distance === 'too_far' || metrics.distance === 'too_close'
+    ? 'text-yellow-500'
+    : 'text-gray-400'
 
-  const getStatusIcon = () => {
-    if (metrics.readyToCapture) return <CheckCircle className="w-5 h-5" />
-    return <AlertCircle className="w-5 h-5" />
+  const StatusIcon = metrics.readyToCapture ? CheckCircle : AlertCircle
+
+  function getGuideColor(): string {
+    if (metrics.readyToCapture) return 'border-green-500'
+    if (metrics.distance === 'good') return 'border-yellow-500'
+    return 'border-white/30'
   }
 
   return (
@@ -174,25 +187,25 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
       <div className="fixed inset-0 z-50 bg-black/95" onClick={handleClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
         <div className="relative w-full h-full max-w-5xl flex flex-col pointer-events-auto">
-        <button
-          onClick={handleClose}
-          className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-all active:scale-95"
-        >
-          <X className="w-4 h-4 text-white" />
-        </button>
+          <button
+            onClick={handleClose}
+            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center transition-all active:scale-95"
+          >
+            <X className="w-4 h-4 text-white" />
+          </button>
 
-        <div className="flex-1 flex items-center justify-center relative">
-          {error ? (
-            <div className="text-center text-white space-y-4">
-              <p className="text-lg">{error}</p>
-              <button
-                onClick={handleClose}
-                className="px-6 py-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          ) : (
+          <div className="flex-1 flex items-center justify-center relative">
+            {error ? (
+              <div className="text-center text-white space-y-4">
+                <p className="text-lg">{error}</p>
+                <button
+                  onClick={handleClose}
+                  className="px-6 py-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
               <div className="relative rounded-lg overflow-hidden">
                 <video
                   ref={videoRef}
@@ -219,25 +232,15 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
 
                 {isReady && (
                   <>
-                    {/* Guide overlay */}
                     <div className="absolute inset-0 pointer-events-none">
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div
-                          className={`w-64 h-64 border-4 rounded-full transition-colors ${
-                            metrics.readyToCapture
-                              ? 'border-green-500'
-                              : metrics.distance === 'good'
-                              ? 'border-yellow-500'
-                              : 'border-white/30'
-                          }`}
-                        />
+                        <div className={`w-64 h-64 border-4 rounded-full transition-colors ${getGuideColor()}`} />
                       </div>
                     </div>
 
-                    {/* Live metrics overlay */}
                     <div className="absolute top-4 left-4 space-y-2">
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-black/60 backdrop-blur-sm ${getStatusColor()}`}>
-                        {getStatusIcon()}
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-black/60 backdrop-blur-sm ${statusColor}`}>
+                        <StatusIcon className="w-5 h-5" />
                         <span className="text-sm font-medium">
                           {metrics.readyToCapture ? 'Ready to capture!' : 'Adjusting...'}
                         </span>
@@ -252,7 +255,6 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
                         </div>
                       ))}
 
-                      {/* Debug metrics */}
                       <div className="px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white/60 text-xs space-y-1">
                         <div>Distance: {metrics.distance}</div>
                         <div>Blur: {metrics.blur.toFixed(0)}</div>
@@ -262,24 +264,24 @@ export function WebcamCapture({ onCapture, onClose }: WebcamCaptureProps) {
                   </>
                 )}
               </div>
+            )}
+          </div>
+
+          {isReady && !error && (
+            <div className="p-6 flex justify-center gap-4">
+              <button
+                onClick={handleCapture}
+                className={`w-16 h-16 rounded-full transition-all flex items-center justify-center shadow-lg ${
+                  metrics.readyToCapture
+                    ? 'bg-green-500 hover:bg-green-600 scale-110'
+                    : 'bg-white hover:bg-gray-100'
+                } active:scale-95`}
+              >
+                <Camera className={`w-8 h-8 ${metrics.readyToCapture ? 'text-white' : 'text-gray-900'}`} />
+              </button>
+            </div>
           )}
         </div>
-
-        {isReady && !error && (
-          <div className="p-6 flex justify-center gap-4">
-            <button
-              onClick={handleCapture}
-              className={`w-16 h-16 rounded-full transition-all flex items-center justify-center shadow-lg ${
-                metrics.readyToCapture
-                  ? 'bg-green-500 hover:bg-green-600 scale-110'
-                  : 'bg-white hover:bg-gray-100'
-              } active:scale-95`}
-            >
-              <Camera className={`w-8 h-8 ${metrics.readyToCapture ? 'text-white' : 'text-gray-900'}`} />
-            </button>
-          </div>
-        )}
-      </div>
       </div>
     </>
   )
